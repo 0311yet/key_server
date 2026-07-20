@@ -117,7 +117,7 @@ def dashboard(request: Request):
     if not auth.parse_session_cookie(request.cookies.get(auth.SESSION_COOKIE, "")):
         return RedirectResponse(url="/login", status_code=302)
     token = _make_csrf_token()
-    resp = render("dashboard.html")
+    resp = render("dashboard.html", csrf_token=token)
     _set_cookie(resp, "csrf_token", token, max_age=3600)
     return resp
 

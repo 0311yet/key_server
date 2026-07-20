@@ -19,7 +19,7 @@ LOGIN_HTML = """<!DOCTYPE html>
         </form>
         <div id="err" class="err"></div>
     </div>
-    <script src="/static/app.js"></script>
+    <script src="/static/app.js?v=2"></script>
 </body>
 </html>"""
 
@@ -39,6 +39,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     <section class="panel">
         <h2>密钥管理 <span id="keys-count" class="count">(0)</span></h2>
         <form id="add-form" class="row-form">
+            <input type="hidden" name="csrf_token" id="csrf-token" value="{{ csrf_token }}">
             <input name="name" placeholder="名称（如 openai）" required>
             <input name="value" placeholder="密钥值" required>
             <button type="submit">添加/更新</button>
@@ -77,6 +78,6 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     <button id="logout-btn" class="logout">退出登录</button>
 </div>
 
-<script src="/static/app.js"></script>
+<script src="/static/app.js?v=2"></script>
 </body>
 </html>"""

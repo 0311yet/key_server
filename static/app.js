@@ -1,12 +1,16 @@
 // ====== 通用工具 ======
 (function () {
     function getCsrfToken() {
-        // 从隐藏表单字段（最可靠，不依赖 cookie）
+        // 1. 优先从隐藏表单字段（SSR 注入，最可靠）
         const el = document.querySelector('input[name="csrf_token"]');
         if (el && el.value) return el.value;
-        // fallback：cookie
-        const match = document.cookie.match(/csrf_token=([^;]+)/);
-        return match ? match[1] : "";
+        // 2. fallback：cookie
+        const cookies = document.cookie ? document.cookie.split(';') : [];
+        for (const c of cookies) {
+            const [k, ...v] = c.trim().split('=');
+            if (k === 'csrf_token' && v.length) return v.join('=');
+        }
+        return "";
     }
 
     async function postForm(url, data) {
