@@ -16,4 +16,4 @@ dependencies = [
 ]
 
 [tool.vercel]
-include-files = ["app/**", "templates/**", "static/**"]
+include-files = ["app/**", "static/**"]

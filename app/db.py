@@ -73,8 +73,8 @@ if _USING_TURSO:
             })
             r.raise_for_status()
 
-    def _deserialize(v):
-        """Turso {type,value} → Python 对象。"""
+    def _deserialize(v, col_name: str = ""):
+        """Turso {type,value} → Python 对象。col_name 决定是否将 text 解析为 datetime。"""
         if isinstance(v, dict) and "type" in v and "value" in v:
             t, val = v["type"], v["value"]
             if t == "integer":
@@ -83,22 +83,26 @@ if _USING_TURSO:
                 return float(val)
             if t == "null":
                 return None
-            val = val
-        else:
-            return v
-        if isinstance(val, str):
-            try:
-                return dt.datetime.fromisoformat(val)
-            except ValueError:
+            if t == "text":
+                # 已知 datetime 字段才做日期解析，避免普通 text 被误转
+                if col_name and any(k in col_name for k in ("_at", "time", "date")):
+                    try:
+                        return dt.datetime.fromisoformat(val)
+                    except ValueError:
+                        pass
                 return val
-        return val
+            if t == "blob":
+                import base64
+                return base64.b64decode(val)
+            return val
+        return v
 
     def _row(d: dict):
         """字典 → 属性对象，兼容调用方的 .id .name 等访问。"""
         class Row:
             def __init__(self, data):
                 for k, v in data.items():
-                    setattr(self, k, _deserialize(v))
+                    setattr(self, k, _deserialize(v, col_name=k))
         return Row(d) if d else None
 
     def init_db():
@@ -189,7 +193,7 @@ def upsert_key(name: str, encrypted_value: str) -> None:
         row = s.exec(select(KeyEntry).where(KeyEntry.name == name)).first()
         if row:
             row.value = encrypted_value
-            row.updated_at = dt.datetime.now(dt.timezone.utc)
+            row.updated_at = dt.datetime.utcnow()  # naive UTC，与 Turso 模式保持一致
         else:
             s.add(KeyEntry(name=name, value=encrypted_value))
         s.commit()

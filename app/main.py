@@ -4,6 +4,7 @@ import datetime as dt
 import hmac
 import secrets
 
+import os
 from fastapi import FastAPI, Request, Response, Form, HTTPException
 from fastapi.responses import JSONResponse, RedirectResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -11,6 +12,35 @@ from fastapi.staticfiles import StaticFiles
 from . import config, crypto, db, auth
 
 app = FastAPI(title="Key Server")
+
+# 本地开发（SQLite，无 TLS）时 session cookie 不加 Secure flag
+# Vercel 始终走 HTTPS，可以加 Secure
+_VERCEL_URL = os.getenv("VERCEL_URL", "")
+_SESSIONS_SECURE = bool(_VERCEL_URL)
+
+# ---------- 简单内存限流（Vercel 每个冷启动独立进程，轻量 DoS 防护）----------
+_RATE_LIMIT: dict[str, list[float]] = {}
+_RATE_WINDOW = 60  # 滚动时间窗口（秒）
+_RATE_MAX = {
+    "login": 10,    # 60 秒内最多 10 次登录尝试
+    "connect": 30,  # 60 秒内最多 30 次连接申请
+}
+
+
+def _check_rate(ip: str, kind: str) -> bool:
+    """返回 True 表示允许，False 表示超限被拒。"""
+    now = __import__("time").time()
+    key = f"{ip}:{kind}"
+    if key not in _RATE_LIMIT:
+        _RATE_LIMIT[key] = []
+    ts_list = _RATE_LIMIT[key]
+    # 清理过期时间戳
+    while ts_list and now - ts_list[0] > _RATE_WINDOW:
+        ts_list.pop(0)
+    if len(ts_list) >= _RATE_MAX.get(kind, 999):
+        return False
+    ts_list.append(now)
+    return True
 
 # 使用内联模板（兼容 Vercel 部署，模板文件不会被包含在 bundle 中）
 import jinja2
@@ -90,12 +120,15 @@ def login_page():
 
 @app.post("/login")
 def do_login(password: str = Form(...), request: Request = None):
+    ip = request.client.host if request and request.client else "unknown"
+    if not _check_rate(ip, "login"):
+        return JSONResponse({"ok": False, "error": "请求过于频繁，请稍后再试"}, status_code=429)
     _check_csrf(request)
     if not auth.verify_and_unlock(password):
         return {"ok": False, "error": "密码错误"}
     resp = JSONResponse({"ok": True})
     _set_cookie(resp, auth.SESSION_COOKIE, auth.make_session_cookie(unlocked=True),
-                max_age=auth.SESSION_MAX_AGE, secure=True)
+                max_age=auth.SESSION_MAX_AGE, secure=_SESSIONS_SECURE)
     return resp
 
 
@@ -157,8 +190,11 @@ def delete_token_endpoint(token_id: int = Form(...), request: Request = None):
 def connect(client_name: str = Form(...), request: Request = None):
     if not client_name or not client_name.strip():
         return JSONResponse({"ok": False, "error": "client_name 不能为空"}, status_code=400)
+    client_name = client_name.strip()[:64]  # 限制长度避免存储异常
+    ip = request.client.host if request and request.client else "unknown"
+    if not _check_rate(ip, "connect"):
+        return JSONResponse({"ok": False, "error": "请求过于频繁，请稍后再试"}, status_code=429)
     connect_id = secrets.token_hex(32)
-    ip = request.client.host if request.client else None
     ua = request.headers.get("user-agent", "")
     db.create_pending(connect_id, client_name, ip, ua)
     return {"ok": True, "connect_id": connect_id}
