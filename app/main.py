@@ -249,28 +249,41 @@ def list_tokens_api(request: Request):
 @app.get("/debug")
 def debug():
     import hashlib
+    import httpx
     from . import config, db as _db
+    from .db import _USING_TURSO, _TURSO_BASE, _TURSO_HEADERS, _serialize, _run
     
-    # 检查环境变量
     env_info = {
-        "TURSO_DATABASE_URL_set": bool(config.TURSO_DATABASE_URL),
-        "TURSO_DATABASE_URL_prefix": config.TURSO_DATABASE_URL[:20] + "..." if config.TURSO_DATABASE_URL else "(empty)",
-        "KV_URL_set": bool(config.KV_URL),
-        "LOGIN_PASSWORD_set": bool(config.LOGIN_PASSWORD),
-        "LOGIN_PASSWORD_prefix": config.LOGIN_PASSWORD[:4] + "..." if config.LOGIN_PASSWORD else "(empty)",
+        "TURSO_DATABASE_URL": config.TURSO_DATABASE_URL[:30] + "..." if config.TURSO_DATABASE_URL else None,
+        "KV_URL": config.KV_URL[:30] + "..." if config.KV_URL else None,
+        "LOGIN_PASSWORD": config.LOGIN_PASSWORD,
     }
+    
+    # 直接测试 Turso API
+    turso_test = {}
+    if _USING_TURSO:
+        try:
+            # 直接查询
+            sql = "SELECT key, value FROM settings WHERE key = ?"
+            arg = _serialize("login_password_hash")
+            turso_test["query_args"] = [arg]
+            
+            with httpx.Client(base_url=_TURSO_BASE, headers=_TURSO_HEADERS, timeout=30.0) as client:
+                r = client.post("/v2/pipeline", json={
+                    "requests": [{"type": "execute", "stmt": {"sql": sql, "args": [arg]}}]
+                })
+                turso_test["response"] = r.json()
+        except Exception as e:
+            turso_test["error"] = str(e)
     
     # 检查数据库
     stored = _db.get_password_hash()
     
-    # 检查 _USING_TURSO
-    from . import db as _db_module
-    using_turso = _db_module._USING_TURSO
-    
     results = {
         "env": env_info,
-        "_USING_TURSO": using_turso,
+        "_USING_TURSO": _USING_TURSO,
         "stored_hash": stored,
+        "turso_test": turso_test,
     }
     
     if stored:
@@ -278,7 +291,7 @@ def debug():
             algo, iters, salt_hex, stored_hash = stored.split("$")
             salt = bytes.fromhex(salt_hex)
             
-            test_passwords = ["test123!@#", config.LOGIN_PASSWORD, "admin", "password"]
+            test_passwords = [config.LOGIN_PASSWORD]
             test_results = {}
             for pwd in test_passwords:
                 if pwd:
@@ -286,7 +299,6 @@ def debug():
                     test_results[pwd] = (h.hex() == stored_hash)
             
             results["test_results"] = test_results
-            results["stored_salt_prefix"] = salt_hex[:8] + "..."
         except Exception as e:
             results["parse_error"] = str(e)
     
