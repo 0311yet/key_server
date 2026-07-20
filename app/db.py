@@ -53,8 +53,9 @@ if _USING_TURSO:
             if res.get("type") == "error":
                 raise RuntimeError(f"SQL error: {res}")
             resp = res.get("response", {})
-            cols = resp.get("cols", [])
-            rows = resp.get("rows", [])
+            result_data = resp.get("result", {})
+            cols = result_data.get("cols", [])
+            rows = result_data.get("rows", [])
             out = []
             for row in rows:
                 obj = {}
@@ -138,17 +139,9 @@ SETTING_PWD_HASH = "login_password_hash"
 
 def get_password_hash() -> str | None:
     if _USING_TURSO:
-        sql = "SELECT key, value FROM settings WHERE key = ?"
-        rows = _run(sql, ("login_password_hash",))
-        # 调试：打印 rows 内容
-        print(f"[DEBUG get_password_hash] SQL: {sql}")
-        print(f"[DEBUG get_password_hash] args: ('login_password_hash',)")
-        print(f"[DEBUG get_password_hash] _run returned: {repr(rows)}")
-        print(f"[DEBUG get_password_hash] rows type: {type(rows)}, len: {len(rows) if rows else 0}")
-        if rows and len(rows) > 0:
-            row = rows[0]
-            print(f"[DEBUG get_password_hash] row type: {type(row)}, content: {repr(row)}")
-            return row.get("value")
+        rows = _run("SELECT key, value FROM settings WHERE key = ?", ("login_password_hash",))
+        if rows:
+            return rows[0].get("value")
         return None
     with Session(_engine) as s:
         row = s.get(Setting, SETTING_PWD_HASH)
