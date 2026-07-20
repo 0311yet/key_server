@@ -1,5 +1,6 @@
 [project]
+name = "key-server"
 requires-python = ">=3.12"
 
 [tool.vercel]
-include_files = ["app/**", "templates/**", "static/**"]
+include-files = ["app/**", "templates/**", "static/**"]
