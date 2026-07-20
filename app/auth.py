@@ -60,9 +60,13 @@ def _verify_password(password: str, stored: str) -> bool:
 # ---------- 启动时确保密码哈希已建立 ----------
 
 def ensure_password_hash() -> None:
+    """确保密码哈希与当前 LOGIN_PASSWORD 一致（首次创建或密码变更后自动重建）。"""
     stored = db.get_password_hash()
     if stored is None:
-        # 首次启动：用 .env 里的 LOGIN_PASSWORD 生成哈希存库
+        db.set_password_hash(_hash_password(config.LOGIN_PASSWORD))
+        return
+    # 环境变量改了密码？检测并自动更新哈希
+    if not _verify_password(config.LOGIN_PASSWORD, stored):
         db.set_password_hash(_hash_password(config.LOGIN_PASSWORD))
 
 
