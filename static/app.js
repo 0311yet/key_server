@@ -27,7 +27,12 @@
     }
 
     async function getJson(url) {
-        const r = await fetch(url);
+        const r = await fetch(url, { signal: AbortSignal.timeout(30000) });
+        if (!r.ok) {
+            const err = new Error(`HTTP ${r.status}`);
+            err.status = r.status;
+            throw err;
+        }
         return r.json();
     }
 
@@ -154,7 +159,7 @@
         return div.innerHTML;
     }
 
-    async function loadDashboard() {
+    async function loadDashboard(retries = 3, backoff = 1000) {
         try {
             const data = await getJson("/api/dashboard/data");
             if (!data.ok) {
@@ -167,14 +172,24 @@
             renderPending(data.pending || []);
             renderTokens(data.tokens || []);
         } catch (e) {
-            console.error("Dashboard poll error:", e);
+            console.warn("Dashboard load error:", e.status || e.message);
+            if (retries > 0) {
+                setTimeout(() => loadDashboard(retries - 1, backoff * 2), backoff);
+            } else {
+                // 重试耗尽，显示错误提示
+                const els = ["keys-tbody", "pending-tbody", "tokens-tbody"];
+                for (const id of els) {
+                    const el = document.getElementById(id);
+                    if (el) el.innerHTML = `<tr><td colspan="99" class="empty" style="color:#e74c3c">加载失败，请刷新重试</td></tr>`;
+                }
+            }
         }
     }
 
     // 加载数据
     loadDashboard();
-    // 每 5 秒轮询一次（实时性 vs 性能平衡）
-    pollTimer = setInterval(loadDashboard, 5000);
+    // 每 3 秒轮询一次（Vercel 冷启动后恢复更快，负载可忽略）
+    pollTimer = setInterval(loadDashboard, 3000);
 
     // 添加 key 表单
     const addForm = document.getElementById("add-form");
