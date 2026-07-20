@@ -138,10 +138,17 @@ SETTING_PWD_HASH = "login_password_hash"
 
 def get_password_hash() -> str | None:
     if _USING_TURSO:
-        rows = _run("SELECT key, value FROM settings WHERE key = ?", ("login_password_hash",))
-        print(f"[DEBUG] _run returned: {rows}")  # 调试
-        if rows:
-            return rows[0].get("value") or rows[0].get("VALUE") or rows[0].get("Value")
+        sql = "SELECT key, value FROM settings WHERE key = ?"
+        rows = _run(sql, ("login_password_hash",))
+        # 调试：打印 rows 内容
+        print(f"[DEBUG get_password_hash] SQL: {sql}")
+        print(f"[DEBUG get_password_hash] args: ('login_password_hash',)")
+        print(f"[DEBUG get_password_hash] _run returned: {repr(rows)}")
+        print(f"[DEBUG get_password_hash] rows type: {type(rows)}, len: {len(rows) if rows else 0}")
+        if rows and len(rows) > 0:
+            row = rows[0]
+            print(f"[DEBUG get_password_hash] row type: {type(row)}, content: {repr(row)}")
+            return row.get("value")
         return None
     with Session(_engine) as s:
         row = s.get(Setting, SETTING_PWD_HASH)

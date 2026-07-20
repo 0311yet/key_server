@@ -250,8 +250,9 @@ def list_tokens_api(request: Request):
 def debug():
     import hashlib
     import httpx
+    import json
     from . import config, db as _db
-    from .db import _USING_TURSO, _TURSO_BASE, _TURSO_HEADERS, _serialize, _run
+    from .db import _USING_TURSO
     
     env_info = {
         "TURSO_DATABASE_URL": config.TURSO_DATABASE_URL[:30] + "..." if config.TURSO_DATABASE_URL else None,
@@ -259,45 +260,55 @@ def debug():
         "LOGIN_PASSWORD": config.LOGIN_PASSWORD,
     }
     
-    # 直接测试 Turso API
-    turso_test = {}
+    # 直接用 httpx 调用 Turso API 测试
+    turso_raw = {}
     if _USING_TURSO:
         try:
-            # 直接查询
-            sql = "SELECT key, value FROM settings WHERE key = ?"
+            from .db import _TURSO_BASE, _TURSO_HEADERS, _serialize
+            # 序列化参数
             arg = _serialize("login_password_hash")
-            turso_test["query_args"] = [arg]
+            turso_raw["arg"] = arg
             
             with httpx.Client(base_url=_TURSO_BASE, headers=_TURSO_HEADERS, timeout=30.0) as client:
                 r = client.post("/v2/pipeline", json={
-                    "requests": [{"type": "execute", "stmt": {"sql": sql, "args": [arg]}}]
+                    "requests": [{"type": "execute", "stmt": {"sql": "SELECT key, value FROM settings WHERE key = ?", "args": [arg]}}]
                 })
-                turso_test["response"] = r.json()
+                raw_resp = r.json()
+                turso_raw["response"] = raw_resp
+                
+                # 测试解析
+                results = raw_resp.get("results", [])
+                if results:
+                    rows = results[0].get("response", {}).get("result", {}).get("rows", [])
+                    turso_raw["parsed_rows"] = rows
+                    if rows:
+                        turso_raw["first_row"] = rows[0]
+                        turso_raw["first_value"] = rows[0][1].get("value") if len(rows[0]) > 1 else None
         except Exception as e:
-            turso_test["error"] = str(e)
+            import traceback
+            turso_raw["error"] = str(e)
+            turso_raw["trace"] = traceback.format_exc()
     
-    # 检查数据库
+    # 使用 _db.get_password_hash() 的结果
     stored = _db.get_password_hash()
     
     results = {
         "env": env_info,
         "_USING_TURSO": _USING_TURSO,
-        "stored_hash": stored,
-        "turso_test": turso_test,
+        "stored_hash_from_db": stored,
+        "turso_raw": turso_raw,
     }
     
     if stored:
         try:
             algo, iters, salt_hex, stored_hash = stored.split("$")
             salt = bytes.fromhex(salt_hex)
-            
             test_passwords = [config.LOGIN_PASSWORD]
             test_results = {}
             for pwd in test_passwords:
                 if pwd:
                     h = hashlib.pbkdf2_hmac("sha256", pwd.encode(), salt, int(iters))
                     test_results[pwd] = (h.hex() == stored_hash)
-            
             results["test_results"] = test_results
         except Exception as e:
             results["parse_error"] = str(e)
