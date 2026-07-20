@@ -47,7 +47,6 @@ async def init_once_middleware(request: Request, call_next):
     return await call_next(request)
 
 
-# ---------- Vercel serverless 不支持 on_event("startup")，已改用 middleware ----------
 
 
 # ---------- / ----------
