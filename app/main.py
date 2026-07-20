@@ -75,7 +75,7 @@ def _check_csrf(request: Request) -> None:
 def _set_cookie(response: Response, name: str, value: str, max_age: int = 3600, secure: bool = False) -> None:
     """手动设置 Set-Cookie header，兼容 Vercel serverless。"""
     from urllib.parse import quote
-    flags = f"Path=/; Max-Age={max_age}; HttpOnly; SameSite=Strict"
+    flags = f"Path=/; Max-Age={max_age}; HttpOnly; SameSite=Lax"
     if secure:
         flags += "; Secure"
     response.headers.append("Set-Cookie", f"{name}={quote(value, safe='')}; {flags}")
