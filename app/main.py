@@ -8,7 +8,6 @@ from typing import Optional
 from fastapi import FastAPI, Request, Response, status, Form
 from fastapi.responses import JSONResponse, RedirectResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 
 from . import config, crypto, db, auth
 
@@ -17,13 +16,20 @@ app = FastAPI(title="Key Server")
 # 使用内联模板（兼容 Vercel 部署，模板文件不会被包含在 bundle 中）
 import jinja2
 from .templates import LOGIN_HTML, DASHBOARD_HTML
-templates = Jinja2Templates(env=jinja2.Environment(
+_jinja_env = jinja2.Environment(
     loader=jinja2.DictLoader({
         "login.html": LOGIN_HTML,
         "dashboard.html": DASHBOARD_HTML,
     }),
     autoescape=True,
-))
+)
+
+def render(name: str, **context) -> HTMLResponse:
+    """渲染模板并返回 HTMLResponse。"""
+    template = _jinja_env.get_template(name)
+    html = template.render(**context)
+    return HTMLResponse(html)
+
 app.mount("/static", StaticFiles(directory=str(config.BASE_DIR / "static")), name="static")
 
 
@@ -50,7 +56,7 @@ def root() -> RedirectResponse:
 # ---------- /login ----------
 @app.get("/login", response_class=HTMLResponse)
 def login_page(request: Request):
-    return templates.TemplateResponse("login.html", {"request": request})
+    return render("login.html", request=request)
 
 
 @app.post("/login")
@@ -85,12 +91,7 @@ def dashboard(request: Request):
     keys = db.list_keys()
     pending = db.list_pending()
     tokens = db.list_tokens()
-    return templates.TemplateResponse("dashboard.html", {
-        "request": request,
-        "keys": [{"name": k.name, "created_at": k.created_at} for k in keys],
-        "pending": pending,
-        "tokens": tokens,
-    })
+    return render("dashboard.html", request=request, keys=keys, pending=pending, tokens=tokens)
 
 
 # ---------- /dashboard/add_key ----------
