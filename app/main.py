@@ -14,7 +14,16 @@ from . import config, crypto, db, auth
 
 app = FastAPI(title="Key Server")
 
-templates = Jinja2Templates(directory=str(config.BASE_DIR / "templates"))
+# 使用内联模板（兼容 Vercel 部署，模板文件不会被包含在 bundle 中）
+import jinja2
+from .templates import LOGIN_HTML, DASHBOARD_HTML
+templates = Jinja2Templates(env=jinja2.Environment(
+    loader=jinja2.DictLoader({
+        "login.html": LOGIN_HTML,
+        "dashboard.html": DASHBOARD_HTML,
+    }),
+    autoescape=True,
+))
 app.mount("/static", StaticFiles(directory=str(config.BASE_DIR / "static")), name="static")
 
 
