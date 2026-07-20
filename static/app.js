@@ -57,6 +57,12 @@
     // ====== 控制台 ======
     let pollTimer = null;
 
+    function renderPage(data) {
+        renderKeys(data.keys || []);
+        renderPending(data.pending || []);
+        renderTokens(data.tokens || []);
+    }
+
     function renderKeys(keys) {
         const tbody = document.getElementById("keys-tbody");
         const countEl = document.getElementById("keys-count");
@@ -163,32 +169,27 @@
         try {
             const data = await getJson("/api/dashboard/data");
             if (!data.ok) {
-                // 未登录，跳转登录页
                 clearInterval(pollTimer);
                 window.location.href = "/login";
                 return;
             }
-            renderKeys(data.keys || []);
-            renderPending(data.pending || []);
-            renderTokens(data.tokens || []);
+            renderPage(data);
         } catch (e) {
-            console.warn("Dashboard load error:", e.status || e.message);
+            console.warn("Dashboard API error:", e.status || e.message);
             if (retries > 0) {
                 setTimeout(() => loadDashboard(retries - 1, backoff * 2), backoff);
-            } else {
-                // 重试耗尽，显示错误提示
-                const els = ["keys-tbody", "pending-tbody", "tokens-tbody"];
-                for (const id of els) {
-                    const el = document.getElementById(id);
-                    if (el) el.innerHTML = `<tr><td colspan="99" class="empty" style="color:#e74c3c">加载失败，请刷新重试</td></tr>`;
-                }
             }
+            // 不覆盖首屏数据，用户仍可看到已渲染的内容
         }
     }
 
-    // 加载数据
+    // 首屏渲染：优先用 window.__DATA__（服务端注入，立即显示）
+    if (window.__DATA__) {
+        renderPage(window.__DATA__);
+    }
+    // 立即后台拉取最新数据（首屏已有则无感更新）
     loadDashboard();
-    // 每 3 秒轮询一次（Vercel 冷启动后恢复更快，负载可忽略）
+    // 每 3 秒轮询
     pollTimer = setInterval(loadDashboard, 3000);
 
     // 添加 key 表单

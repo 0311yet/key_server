@@ -54,7 +54,17 @@ _jinja_env = jinja2.Environment(
 )
 
 def render(name: str, **context) -> HTMLResponse:
-    """渲染模板并返回 HTMLResponse。"""
+    """渲染模板并返回 HTMLResponse。dashboard 由 make_dashboard_html 单独处理。"""
+    if name == "dashboard.html" and "_keys" in context:
+        # 由 make_dashboard_html 生成（包含初始数据注入）
+        from . import templates as _tpl
+        html = _tpl.make_dashboard_html(
+            csrf_token=context.get("csrf_token", ""),
+            keys=context.get("_keys"),
+            pending=context.get("_pending"),
+            tokens=context.get("_tokens"),
+        )
+        return HTMLResponse(html)
     template = _jinja_env.get_template(name)
     html = template.render(**{k: v for k, v in context.items() if v is not None})
     return HTMLResponse(html)
@@ -149,7 +159,17 @@ def dashboard(request: Request):
     if not auth.parse_session_cookie(request.cookies.get(auth.SESSION_COOKIE, "")):
         return RedirectResponse(url="/login", status_code=302)
     token = _make_csrf_token()
-    resp = render("dashboard.html", csrf_token=token)
+
+    # 首次渲染时直接从 DB 取数据嵌入 HTML，避免依赖 AJAX
+    keys = db.list_keys()
+    pending = db.list_pending()
+    tokens = db.list_tokens()
+
+    resp = render(
+        "dashboard.html",
+        csrf_token=token,
+        _keys=keys, _pending=pending, _tokens=tokens,
+    )
     _set_cookie(resp, "csrf_token", token, max_age=3600)
     return resp
 
