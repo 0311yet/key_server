@@ -1,13 +1,9 @@
 {
-  "builds": [
-    {
-      "src": "api/index.py",
-      "use": "@vercel/python",
-      "config": {
-        "includeFiles": ["templates/**", "static/**", "app/**"]
-      }
+  "functions": {
+    "api/index.py": {
+      "includeFiles": "{templates/**,static/**,app/**}"
     }
-  ],
+  },
   "rewrites": [
     {
       "source": "/(.*)",
