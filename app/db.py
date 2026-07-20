@@ -61,7 +61,7 @@ if _USING_TURSO:
                 obj = {}
                 for i, cell in enumerate(row):
                     col_name = cols[i]["name"] if i < len(cols) else f"col{i}"
-                    obj[col_name] = _deserialize(cell)
+                    obj[col_name] = _deserialize(cell, col_name)
                 out.append(obj)
             return out
 
@@ -75,26 +75,27 @@ if _USING_TURSO:
 
     def _deserialize(v, col_name: str = ""):
         """Turso {type,value} → Python 对象。col_name 决定是否将 text 解析为 datetime。"""
-        if isinstance(v, dict) and "type" in v and "value" in v:
-            t, val = v["type"], v["value"]
-            if t == "integer":
-                return int(val)
-            if t == "float":
-                return float(val)
-            if t == "null":
-                return None
-            if t == "text":
-                # 已知 datetime 字段才做日期解析，避免普通 text 被误转
-                if col_name and any(k in col_name for k in ("_at", "time", "date")):
-                    try:
-                        return dt.datetime.fromisoformat(val)
-                    except ValueError:
-                        pass
-                return val
-            if t == "blob":
-                import base64
-                return base64.b64decode(val)
-            return val
+        if not isinstance(v, dict) or "type" not in v:
+            return v
+        t = v["type"]
+        val = v.get("value")  # nullable: null cells have no "value" key
+        if t == "integer":
+            return int(val) if val is not None else 0
+        if t == "float":
+            return float(val) if val is not None else 0.0
+        if t == "null":
+            return None
+        if t == "text":
+            if col_name and any(k in col_name for k in ("_at", "time", "date")):
+                val_clean = val.replace("Z", "+00:00") if val else ""
+                try:
+                    return dt.datetime.fromisoformat(val_clean)
+                except ValueError:
+                    pass
+            return val if val is not None else ""
+        if t == "blob":
+            import base64
+            return base64.b64decode(val) if val else b""
         return v
 
     def _row(d: dict):
