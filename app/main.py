@@ -72,11 +72,19 @@ def _check_csrf(request: Request) -> None:
         raise HTTPException(status_code=403, detail="CSRF token mismatch")
 
 
+def _set_cookie(response: Response, name: str, value: str, max_age: int = 3600, secure: bool = False) -> None:
+    """手动设置 Set-Cookie header，兼容 Vercel serverless。"""
+    from urllib.parse import quote
+    flags = f"Path=/; Max-Age={max_age}; HttpOnly; SameSite=Strict"
+    if secure:
+        flags += "; Secure"
+    response.headers.append("Set-Cookie", f"{name}={quote(value, safe='')}; {flags}")
+
+
 @app.get("/login", response_class=HTMLResponse)
 def login_page(response: Response):
     token = _make_csrf_token()
-    response.set_cookie(key="csrf_token", value=token, max_age=3600,
-                       httponly=True, samesite="strict")
+    _set_cookie(response, "csrf_token", token, max_age=3600)
     return render("login.html")
 
 
@@ -85,14 +93,8 @@ def do_login(password: str = Form(...), request: Request = None, response: Respo
     _check_csrf(request)
     if not auth.verify_and_unlock(password):
         return {"ok": False, "error": "密码错误"}
-    response = Response()
-    response.set_cookie(
-        key=auth.SESSION_COOKIE,
-        value=auth.make_session_cookie(unlocked=True),
-        max_age=auth.SESSION_MAX_AGE,
-        httponly=True,
-        samesite="lax",
-    )
+    _set_cookie(response, auth.SESSION_COOKIE, auth.make_session_cookie(unlocked=True),
+                  max_age=auth.SESSION_MAX_AGE, secure=True)
     return {"ok": True}
 
 
@@ -101,7 +103,8 @@ def do_login(password: str = Form(...), request: Request = None, response: Respo
 def logout(response: Response, request: Request = None):
     _check_csrf(request)
     crypto.lock()
-    response.delete_cookie(key=auth.SESSION_COOKIE)
+    response.headers.append("Set-Cookie", f"{auth.SESSION_COOKIE}=; Path=/; Max-Age=0")
+    response.headers.append("Set-Cookie", f"csrf_token=; Path=/; Max-Age=0")
     return {"ok": True}
 
 
@@ -111,8 +114,7 @@ def dashboard(request: Request, response: Response):
     if not auth.parse_session_cookie(request.cookies.get(auth.SESSION_COOKIE, "")):
         return RedirectResponse(url="/login", status_code=302)
     token = _make_csrf_token()
-    response.set_cookie(key="csrf_token", value=token, max_age=3600,
-                       httponly=True, samesite="strict")
+    _set_cookie(response, "csrf_token", token, max_age=3600)
     return render("dashboard.html")
 
 
