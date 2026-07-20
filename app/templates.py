@@ -13,6 +13,7 @@ LOGIN_HTML = """<!DOCTYPE html>
         <h1>🔑 Key Server</h1>
         <p class="hint">输入管理密码登录并解锁服务端</p>
         <form id="login-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <input type="password" name="password" placeholder="管理密码" autocomplete="current-password" required>
             <button type="submit">登录</button>
         </form>

@@ -26,7 +26,7 @@ _jinja_env = jinja2.Environment(
 def render(name: str, **context) -> HTMLResponse:
     """渲染模板并返回 HTMLResponse。"""
     template = _jinja_env.get_template(name)
-    html = template.render(**context)
+    html = template.render(**{k: v for k, v in context.items() if v is not None})
     return HTMLResponse(html)
 
 app.mount("/static", StaticFiles(directory=str(config.BASE_DIR / "static")), name="static")
@@ -84,7 +84,7 @@ def _set_cookie(response: Response, name: str, value: str, max_age: int = 3600, 
 @app.get("/login", response_class=HTMLResponse)
 def login_page():
     token = _make_csrf_token()
-    resp = render("login.html")
+    resp = render("login.html", csrf_token=token)
     _set_cookie(resp, "csrf_token", token, max_age=3600)
     return resp
 

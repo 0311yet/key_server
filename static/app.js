@@ -1,6 +1,10 @@
 // ====== 通用工具 ======
 (function () {
     function getCsrfToken() {
+        // 从隐藏表单字段（最可靠，不依赖 cookie）
+        const el = document.querySelector('input[name="csrf_token"]');
+        if (el && el.value) return el.value;
+        // fallback：cookie
         const match = document.cookie.match(/csrf_token=([^;]+)/);
         return match ? match[1] : "";
     }
