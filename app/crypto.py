@@ -36,12 +36,22 @@ def derive_master_key(password: str) -> bytes:
 
 
 def unlock(password: str) -> bool:
-    """派生主密钥，写入 KV，TTL=30 天。调用方需先验证密码。"""
+    """派生主密钥，写入 KV，TTL=30 天。调用方需先验证密码。
+
+    Upstash REST API 格式：
+      - SETEX：POST /setex/KEY  -d 'VALUE'   （TTL 秒通过 query param 或先 set 再 expire）
+      - 实际用 SET + EXPIRE 两步（Upstash 不支持 PATH 拼接 setex/key/ttl/value）
+    """
     mk = derive_master_key(password)
     b64 = base64.b64encode(mk).decode()
+    h = _kv_headers()
+    # SET
+    r = httpx.post(f"{config.KV_URL}/set/{KV_KEY}", headers=h, content=b64)
+    r.raise_for_status()
+    # EXPIRE
     r = httpx.post(
-        f"{config.KV_URL}/setex/{KV_KEY}/{config.MASTER_KEY_TTL}/{b64}",
-        headers=_kv_headers(),
+        f"{config.KV_URL}/expire/{KV_KEY}/{config.MASTER_KEY_TTL}",
+        headers=h,
     )
     r.raise_for_status()
     return True
@@ -63,7 +73,7 @@ def refresh_ttl() -> None:
         )
         r.raise_for_status()
     except Exception:
-        pass  # 主密钥不在 KV 里就不续，不报错
+        pass
 
 
 def is_unlocked() -> bool:

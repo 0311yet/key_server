@@ -1,5 +1,6 @@
 """FastAPI 主应用：Web + AI API。"""
 from __future__ import annotations
+import os
 import datetime as dt
 import secrets
 from typing import Optional
@@ -15,6 +16,15 @@ app = FastAPI(title="Key Server")
 
 templates = Jinja2Templates(directory=str(config.BASE_DIR / "templates"))
 app.mount("/static", StaticFiles(directory=str(config.BASE_DIR / "static")), name="static")
+
+
+# 在每个请求前确保 DB schema 已创建（特别是 :memory: 模式）
+@app.middleware("http")
+async def init_db_if_needed(request: Request, call_next):
+    if not os.getenv("TURSO_DATABASE_URL"):
+        from app import db as _db
+        _db.init_db()
+    return await call_next(request)
 
 
 # ---------- 启动时初始化 ----------
