@@ -64,9 +64,6 @@ def ensure_password_hash() -> None:
     if stored is None:
         # 首次启动：用 .env 里的 LOGIN_PASSWORD 生成哈希存库
         db.set_password_hash(_hash_password(config.LOGIN_PASSWORD))
-    elif not _verify_password(config.LOGIN_PASSWORD, stored):
-        # 环境变量密码已更新，重新生成哈希（解决 Vercel 环境变量变更或旧数据问题）
-        db.set_password_hash(_hash_password(config.LOGIN_PASSWORD))
 
 
 def verify_and_unlock(password: str) -> bool:
