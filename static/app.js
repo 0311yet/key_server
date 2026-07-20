@@ -1,10 +1,19 @@
 // ====== 登录页 ======
 (function () {
+    function getCsrfToken() {
+        // 从 cookie 中读取 CSRF token
+        const match = document.cookie.match(/csrf_token=([^;]+)/);
+        return match ? match[1] : "";
+    }
+
     async function postForm(url, data) {
         const body = new URLSearchParams(data);
+        const headers = {"Content-Type": "application/x-www-form-urlencoded"};
+        const csrf = getCsrfToken();
+        if (csrf) headers["X-CSRF-Token"] = csrf;
         const r = await fetch(url, {
             method: "POST",
-            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            headers: headers,
             body: body.toString(),
         });
         return r.json();

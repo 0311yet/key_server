@@ -5,9 +5,11 @@ import datetime as dt
 import secrets
 from typing import Optional
 
-from fastapi import FastAPI, Request, Response, status, Form
+from fastapi import FastAPI, Request, Response, status, Form, HTTPException
 from fastapi.responses import JSONResponse, RedirectResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.datastructures import Headers
+import hashlib, hmac
 
 from . import config, crypto, db, auth
 
@@ -54,15 +56,36 @@ def root() -> RedirectResponse:
 
 
 # ---------- /login ----------
+def _make_csrf_token() -> str:
+    """生成 CSRF token（用于防 CSRF 攻击）。"""
+    import secrets
+    return secrets.token_hex(32)
+
+
+def _check_csrf(request: Request) -> None:
+    """检查 CSRF token（double-submit cookie 模式）。"""
+    cookie_token = request.cookies.get("csrf_token", "")
+    header_token = request.headers.get("x-csrf-token", "")
+    if not cookie_token or not header_token:
+        raise HTTPException(status_code=403, detail="CSRF token missing")
+    if not hmac.compare_digest(cookie_token, header_token):
+        raise HTTPException(status_code=403, detail="CSRF token mismatch")
+
+
 @app.get("/login", response_class=HTMLResponse)
-def login_page(request: Request):
-    return render("login.html", request=request)
+def login_page(request: Request, response: Response):
+    token = _make_csrf_token()
+    response.set_cookie(key="csrf_token", value=token, max_age=3600,
+                       httponly=True, samesite="strict")
+    return render("login.html", request=request, csrf_token=token)
 
 
 @app.post("/login")
-def do_login(password: str = Form(...), response: Response = None):
+def do_login(password: str = Form(...), request: Request = None, response: Response = None):
+    _check_csrf(request)
     if not auth.verify_and_unlock(password):
         return {"ok": False, "error": "密码错误"}
+    response = Response()
     response.set_cookie(
         key=auth.SESSION_COOKIE,
         value=auth.make_session_cookie(unlocked=True),
@@ -75,7 +98,8 @@ def do_login(password: str = Form(...), response: Response = None):
 
 # ---------- /logout ----------
 @app.post("/logout")
-def logout(response: Response):
+def logout(response: Response, request: Request = None):
+    _check_csrf(request)
     crypto.lock()
     response.delete_cookie(key=auth.SESSION_COOKIE)
     return {"ok": True}
@@ -83,7 +107,7 @@ def logout(response: Response):
 
 # ---------- /dashboard ----------
 @app.get("/dashboard", response_class=HTMLResponse)
-def dashboard(request: Request):
+def dashboard(request: Request, response: Response):
     if not auth.parse_session_cookie(request.cookies.get(auth.SESSION_COOKIE, "")):
         return RedirectResponse(url="/login", status_code=302)
     # 每次打开控制台，刷新主密钥 KV TTL
@@ -91,7 +115,11 @@ def dashboard(request: Request):
     keys = db.list_keys()
     pending = db.list_pending()
     tokens = db.list_tokens()
-    return render("dashboard.html", request=request, keys=keys, pending=pending, tokens=tokens)
+    # 生成 CSRF token（双重提交 cookie 模式）
+    token = _make_csrf_token()
+    response.set_cookie(key="csrf_token", value=token, max_age=3600,
+                       httponly=True, samesite="strict")
+    return render("dashboard.html", request=request, keys=keys, pending=pending, tokens=tokens, csrf_token=token)
 
 
 # ---------- /dashboard/add_key ----------
@@ -99,6 +127,7 @@ def dashboard(request: Request):
 def add_key(name: str = Form(...), value: str = Form(...), request: Request = None):
     if not auth.parse_session_cookie(request.cookies.get(auth.SESSION_COOKIE, "")):
         return {"ok": False, "error": "未登录"}
+    _check_csrf(request)
     encrypted = crypto.encrypt_key(value)
     db.upsert_key(name, encrypted)
     return {"ok": True}
@@ -109,6 +138,7 @@ def add_key(name: str = Form(...), value: str = Form(...), request: Request = No
 def delete_key(name: str = Form(...), request: Request = None):
     if not auth.parse_session_cookie(request.cookies.get(auth.SESSION_COOKIE, "")):
         return {"ok": False, "error": "未登录"}
+    _check_csrf(request)
     ok = db.delete_key(name)
     return {"ok": ok}
 
@@ -118,6 +148,7 @@ def delete_key(name: str = Form(...), request: Request = None):
 def delete_token_endpoint(token_id: int = Form(...), request: Request = None):
     if not auth.parse_session_cookie(request.cookies.get(auth.SESSION_COOKIE, "")):
         return {"ok": False, "error": "未登录"}
+    _check_csrf(request)
     ok = db.delete_token(token_id)
     return {"ok": ok}
 
@@ -125,6 +156,8 @@ def delete_token_endpoint(token_id: int = Form(...), request: Request = None):
 # ---------- AI 连接流程 ----------
 @app.post("/api/connect")
 def connect(client_name: str = Form(...), request: Request = None):
+    if not client_name or not client_name.strip():
+        return JSONResponse({"ok": False, "error": "client_name 不能为空"}, status_code=400)
     connect_id = secrets.token_hex(32)
     ip = request.client.host if request.client else None
     ua = request.headers.get("user-agent", "")
@@ -155,6 +188,7 @@ def connect_status(connect_id: str):
 def approve(connect_id: str, request: Request = None):
     if not auth.parse_session_cookie(request.cookies.get(auth.SESSION_COOKIE, "")):
         return {"ok": False, "error": "未登录"}
+    _check_csrf(request)
     pending = db.get_pending(connect_id)
     if not pending:
         return {"ok": False, "error": "连接不存在"}
@@ -166,6 +200,7 @@ def approve(connect_id: str, request: Request = None):
 def deny(connect_id: str, request: Request = None):
     if not auth.parse_session_cookie(request.cookies.get(auth.SESSION_COOKIE, "")):
         return {"ok": False, "error": "未登录"}
+    _check_csrf(request)
     pending = db.get_pending(connect_id)
     if not pending:
         return {"ok": False, "error": "连接不存在"}
