@@ -114,14 +114,11 @@ def logout(response: Response, request: Request = None):
 def dashboard(request: Request, response: Response):
     if not auth.parse_session_cookie(request.cookies.get(auth.SESSION_COOKIE, "")):
         return RedirectResponse(url="/login", status_code=302)
-    keys = db.list_keys()
-    pending = db.list_pending()
-    tokens = db.list_tokens()
-    # 生成 CSRF token（双重提交 cookie 模式）
+    # 生成 CSRF token
     token = _make_csrf_token()
     response.set_cookie(key="csrf_token", value=token, max_age=3600,
                        httponly=True, samesite="strict")
-    return render("dashboard.html", request=request, keys=keys, pending=pending, tokens=tokens, csrf_token=token)
+    return render("dashboard.html", request=request, keys=[], pending=[], tokens=[])
 
 
 # ---------- /dashboard/add_key ----------
@@ -279,6 +276,27 @@ def list_tokens_api(request: Request):
             "last_ip": t.last_ip,
         } for t in tokens
     ]}
+
+
+# ---------- /api/dashboard（session 认证，供前端轮询用）----------
+@app.get("/api/dashboard/data")
+def dashboard_data_api(request: Request):
+    if not auth.parse_session_cookie(request.cookies.get(auth.SESSION_COOKIE, "")):
+        return JSONResponse({"ok": False, "error": "未登录"}, status_code=401)
+    keys = db.list_keys()
+    pending = db.list_pending()
+    tokens = db.list_tokens()
+    return {
+        "ok": True,
+        "keys": [{"name": k.name, "created_at": k.created_at.isoformat() if k.created_at else ""} for k in keys],
+        "pending": [{"id": p.id, "connect_id": p.connect_id, "client_name": p.client_name,
+                      "ip": p.ip, "created_at": p.created_at.isoformat() if p.created_at else ""} for p in pending],
+        "tokens": [{"id": t.id, "client_name": t.client_name, "status": t.status,
+                    "created_at": t.created_at.isoformat() if t.created_at else "",
+                    "expires_at": t.expires_at.isoformat() if t.expires_at else "",
+                    "last_used_at": t.last_used_at.isoformat() if t.last_used_at else "",
+                    "last_ip": t.last_ip} for t in tokens],
+    }
 
 
 # ---------- /health ----------

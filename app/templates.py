@@ -36,7 +36,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 <div class="wrap">
     <!-- 密钥管理 -->
     <section class="panel">
-        <h2>密钥管理 <span class="count">({{ keys|length }})</span></h2>
+        <h2>密钥管理 <span id="keys-count" class="count">(0)</span></h2>
         <form id="add-form" class="row-form">
             <input name="name" placeholder="名称（如 openai）" required>
             <input name="value" placeholder="密钥值" required>
@@ -44,65 +44,31 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         </form>
         <table>
             <thead><tr><th>名称</th><th>创建时间</th><th>操作</th></tr></thead>
-            <tbody>
-            {% for k in keys %}
-            <tr>
-                <td>{{ k.name }}</td>
-                <td>{{ k.created_at.isoformat() if k.created_at else '' }}</td>
-                <td><button class="del" data-name="{{ k.name }}">删除</button></td>
-            </tr>
-            {% endfor %}
-            {% if keys|length == 0 %}
-            <tr><td colspan="3" class="empty">暂无密钥</td></tr>
-            {% endif %}
+            <tbody id="keys-tbody">
+                <tr><td colspan="3" class="empty">加载中...</td></tr>
             </tbody>
         </table>
     </section>
 
     <!-- 待审批连接 -->
     <section class="panel">
-        <h2>待审批连接 <span class="count">({{ pending|length }})</span></h2>
+        <h2>待审批连接 <span id="pending-count" class="count">(0)</span></h2>
         <p class="hint">AI 第一次连接时会出现在这里，点【同意】授权它获得 30 天访问 token。</p>
         <table>
             <thead><tr><th>名称</th><th>申请时间</th><th>IP</th><th>操作</th></tr></thead>
-            <tbody>
-            {% for p in pending %}
-            <tr>
-                <td>{{ p.client_name }}</td>
-                <td>{{ p.created_at.isoformat() if p.created_at else '' }}</td>
-                <td>{{ p.ip }}</td>
-                <td>
-                    <button class="approve" data-id="{{ p.connect_id }}">同意</button>
-                    <button class="deny" data-id="{{ p.connect_id }}">拒绝</button>
-                </td>
-            </tr>
-            {% endfor %}
-            {% if pending|length == 0 %}
-            <tr><td colspan="4" class="empty">暂无待审批连接</td></tr>
-            {% endif %}
+            <tbody id="pending-tbody">
+                <tr><td colspan="4" class="empty">加载中...</td></tr>
             </tbody>
         </table>
     </section>
 
     <!-- 已授权客户端 -->
     <section class="panel">
-        <h2>已授权客户端 <span class="count">({{ tokens|length }})</span></h2>
+        <h2>已授权客户端 <span id="tokens-count" class="count">(0)</span></h2>
         <table>
             <thead><tr><th>名称</th><th>状态</th><th>创建</th><th>到期</th><th>最后使用</th><th>操作</th></tr></thead>
-            <tbody>
-            {% for t in tokens %}
-            <tr>
-                <td>{{ t.client_name }}</td>
-                <td>{{ t.status }}</td>
-                <td>{{ t.created_at.isoformat() if t.created_at else '' }}</td>
-                <td>{{ t.expires_at.isoformat() if t.expires_at else '' }}</td>
-                <td>{{ t.last_used_at.isoformat() if t.last_used_at else '从未使用' }}</td>
-                <td><button class="revoke" data-id="{{ t.id }}">删除</button></td>
-            </tr>
-            {% endfor %}
-            {% if tokens|length == 0 %}
-            <tr><td colspan="6" class="empty">暂无已授权客户端</td></tr>
-            {% endif %}
+            <tbody id="tokens-tbody">
+                <tr><td colspan="6" class="empty">加载中...</td></tr>
             </tbody>
         </table>
     </section>
