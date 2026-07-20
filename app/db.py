@@ -352,5 +352,3 @@ def set_pending_status(pending_id: int, status: str) -> None:
             s.commit()
 
 
-def bootstrap() -> None:
-    init_db()

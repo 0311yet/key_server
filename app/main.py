@@ -1,15 +1,12 @@
 """FastAPI 主应用：Web + AI API。"""
 from __future__ import annotations
-import os
 import datetime as dt
+import hmac
 import secrets
-from typing import Optional
 
-from fastapi import FastAPI, Request, Response, status, Form, HTTPException
+from fastapi import FastAPI, Request, Response, Form, HTTPException
 from fastapi.responses import JSONResponse, RedirectResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
-from starlette.datastructures import Headers
-import hashlib, hmac
 
 from . import config, crypto, db, auth
 
@@ -62,7 +59,6 @@ def root() -> RedirectResponse:
 # ---------- /login ----------
 def _make_csrf_token() -> str:
     """生成 CSRF token（用于防 CSRF 攻击）。"""
-    import secrets
     return secrets.token_hex(32)
 
 
@@ -77,11 +73,11 @@ def _check_csrf(request: Request) -> None:
 
 
 @app.get("/login", response_class=HTMLResponse)
-def login_page(request: Request, response: Response):
+def login_page(response: Response):
     token = _make_csrf_token()
     response.set_cookie(key="csrf_token", value=token, max_age=3600,
                        httponly=True, samesite="strict")
-    return render("login.html", request=request, csrf_token=token)
+    return render("login.html")
 
 
 @app.post("/login")
@@ -114,11 +110,10 @@ def logout(response: Response, request: Request = None):
 def dashboard(request: Request, response: Response):
     if not auth.parse_session_cookie(request.cookies.get(auth.SESSION_COOKIE, "")):
         return RedirectResponse(url="/login", status_code=302)
-    # 生成 CSRF token
     token = _make_csrf_token()
     response.set_cookie(key="csrf_token", value=token, max_age=3600,
                        httponly=True, samesite="strict")
-    return render("dashboard.html", request=request, keys=[], pending=[], tokens=[])
+    return render("dashboard.html")
 
 
 # ---------- /dashboard/add_key ----------
@@ -217,8 +212,7 @@ def list_keys_api(request: Request):
     if not token:
         return JSONResponse({"ok": False, "error": "未授权"}, status_code=401)
     keys = db.list_keys()
-    return {"ok": True,
-            "keys": [{"name": k.name, "created_at": k.created_at} for k in keys]}
+    return {"ok": True, "keys": [{"name": k.name, "created_at": k.created_at} for k in keys]}
 
 
 @app.get("/api/keys/{name}")
@@ -259,23 +253,6 @@ def delete_key_api(name: str, request: Request):
         return JSONResponse({"ok": False, "error": "未授权"}, status_code=401)
     ok = db.delete_key(name)
     return {"ok": ok}
-
-
-# ---------- /api/tokens (admin) ----------
-@app.get("/api/tokens")
-def list_tokens_api(request: Request):
-    if not auth.parse_session_cookie(request.cookies.get(auth.SESSION_COOKIE, "")):
-        return JSONResponse({"ok": False, "error": "未登录"}, status_code=401)
-    tokens = db.list_tokens()
-    return {"ok": True, "tokens": [
-        {
-            "id": t.id, "client_name": t.client_name, "status": t.status,
-            "created_at": t.created_at.isoformat() if t.created_at else "",
-            "expires_at": t.expires_at.isoformat() if t.expires_at else "",
-            "last_used_at": t.last_used_at.isoformat() if t.last_used_at else "",
-            "last_ip": t.last_ip,
-        } for t in tokens
-    ]}
 
 
 # ---------- /api/dashboard（session 认证，供前端轮询用）----------
