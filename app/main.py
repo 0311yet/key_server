@@ -82,40 +82,44 @@ def _set_cookie(response: Response, name: str, value: str, max_age: int = 3600, 
 
 
 @app.get("/login", response_class=HTMLResponse)
-def login_page(response: Response):
+def login_page():
     token = _make_csrf_token()
-    _set_cookie(response, "csrf_token", token, max_age=3600)
-    return render("login.html")
+    resp = render("login.html")
+    _set_cookie(resp, "csrf_token", token, max_age=3600)
+    return resp
 
 
 @app.post("/login")
-def do_login(password: str = Form(...), request: Request = None, response: Response = None):
+def do_login(password: str = Form(...), request: Request = None):
     _check_csrf(request)
     if not auth.verify_and_unlock(password):
         return {"ok": False, "error": "密码错误"}
-    _set_cookie(response, auth.SESSION_COOKIE, auth.make_session_cookie(unlocked=True),
-                  max_age=auth.SESSION_MAX_AGE, secure=True)
-    return {"ok": True}
+    resp = JSONResponse({"ok": True})
+    _set_cookie(resp, auth.SESSION_COOKIE, auth.make_session_cookie(unlocked=True),
+                max_age=auth.SESSION_MAX_AGE, secure=True)
+    return resp
 
 
 # ---------- /logout ----------
 @app.post("/logout")
-def logout(response: Response, request: Request = None):
+def logout(request: Request = None):
     _check_csrf(request)
     crypto.lock()
-    response.headers.append("Set-Cookie", f"{auth.SESSION_COOKIE}=; Path=/; Max-Age=0")
-    response.headers.append("Set-Cookie", f"csrf_token=; Path=/; Max-Age=0")
-    return {"ok": True}
+    resp = JSONResponse({"ok": True})
+    resp.headers.append("Set-Cookie", f"{auth.SESSION_COOKIE}=; Path=/; Max-Age=0")
+    resp.headers.append("Set-Cookie", f"csrf_token=; Path=/; Max-Age=0")
+    return resp
 
 
 # ---------- /dashboard ----------
 @app.get("/dashboard", response_class=HTMLResponse)
-def dashboard(request: Request, response: Response):
+def dashboard(request: Request):
     if not auth.parse_session_cookie(request.cookies.get(auth.SESSION_COOKIE, "")):
         return RedirectResponse(url="/login", status_code=302)
     token = _make_csrf_token()
-    _set_cookie(response, "csrf_token", token, max_age=3600)
-    return render("dashboard.html")
+    resp = render("dashboard.html")
+    _set_cookie(resp, "csrf_token", token, max_age=3600)
+    return resp
 
 
 # ---------- /dashboard/add_key ----------
