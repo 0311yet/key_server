@@ -19,12 +19,20 @@ def _env(name: str, default: str | None = None) -> str:
 LOGIN_PASSWORD: str = _env("LOGIN_PASSWORD")
 KDF_SALT_HEX: str = _env("KDF_SALT")
 SESSION_SECRET: str = _env("SESSION_SECRET")
-HOST: str = os.getenv("HOST", "0.0.0.0")
-PORT: int = int(os.getenv("PORT", "8000"))
-DB_FILE: str = os.getenv("DB_FILE", str(BASE_DIR / "data" / "key_server.db"))
 
-# 确保 DB 目录存在
-Path(DB_FILE).parent.mkdir(parents=True, exist_ok=True)
+# 兼容两种数据库模式：
+#   - 本地 / VPS：用 DB_FILE（sqlite:///...）
+#   - Vercel + Turso：用 TURSO_DATABASE_URL + TURSO_AUTH_TOKEN
+DB_FILE: str = os.getenv("DB_FILE", str(BASE_DIR / "data" / "key_server.db"))
+TURSO_DATABASE_URL: str = os.getenv("TURSO_DATABASE_URL", "")
+TURSO_AUTH_TOKEN: str = os.getenv("TURSO_AUTH_TOKEN", "")
+
+# Upstash Redis KV（存主密钥）
+KV_URL: str = _env("KV_URL")
+KV_TOKEN: str = _env("KV_TOKEN")
+
+# 主密钥在 KV 里的 TTL（秒）：默认 30 天
+MASTER_KEY_TTL: int = int(os.getenv("MASTER_KEY_TTL", "2592000"))
 
 
 def kdf_salt_bytes() -> bytes:

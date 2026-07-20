@@ -1,6 +1,7 @@
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
 sqlmodel==0.0.22
+sqlalchemy-libsql
 python-multipart==0.0.20
 jinja2==3.1.5
 itsdangerous==2.2.0

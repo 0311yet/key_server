@@ -1,29 +1,26 @@
-"""方案 B1：口令派生主密钥 + AES-GCM 加解密。
+"""方案 B（Vercel/Turso 适配版）：口令派生主密钥 + AES-GCM 加解密。
 
-- MASTER_KEY 由登录密码经 scrypt 派生而来，只在内存里。
-- 服务端启动后处于 locked 状态，直到有人登录一次 Web 才 unlocked。
-- 每条密钥用 AES-GCM 加密，nonce 拼在密文前一起存库。
+- MASTER_KEY 由登录密码经 scrypt 派生而来。
+- 主密钥写入 Upstash Redis KV（不存进程内存），带滑窗 TTL。
+- 每次加解密操作从 KV 取主密钥。
+- 服务端锁定 = KV 中没有主密钥（从未登录或已退出/过期）。
 """
 from __future__ import annotations
 import os
 import base64
 import hmac
+import httpx
+
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 
 from . import config
 
-
-# 内存里的全局状态（进程级单例）
-class _State:
-    master_key: bytes | None = None
-
-    @property
-    def unlocked(self) -> bool:
-        return self.master_key is not None
+KV_KEY = "master_key"
 
 
-_state = _State()
+def _kv_headers() -> dict:
+    return {"Authorization": f"Bearer {config.KV_TOKEN}"}
 
 
 def derive_master_key(password: str) -> bytes:
@@ -39,28 +36,54 @@ def derive_master_key(password: str) -> bytes:
 
 
 def unlock(password: str) -> bool:
-    """尝试用密码解锁服务端：派生主密钥到内存。成功返回 True。
-
-    安全说明：登录密码的校验（与库中哈希比对）应在 auth.py 完成；
-    本函数只负责把派生出来的主密钥放进内存。调用方需先校验密码。
-    """
-    _state.master_key = derive_master_key(password)
+    """派生主密钥，写入 KV，TTL=30 天。调用方需先验证密码。"""
+    mk = derive_master_key(password)
+    b64 = base64.b64encode(mk).decode()
+    r = httpx.post(
+        f"{config.KV_URL}/setex/{KV_KEY}/{config.MASTER_KEY_TTL}/{b64}",
+        headers=_kv_headers(),
+    )
+    r.raise_for_status()
     return True
 
 
 def lock() -> None:
-    """锁定服务端（清掉内存主密钥）。一般不主动调用，留作管理用。"""
-    _state.master_key = None
+    """锁定：从 KV 删除主密钥。"""
+    r = httpx.post(f"{config.KV_URL}/del/{KV_KEY}",
+                   headers=_kv_headers())
+    r.raise_for_status()
+
+
+def refresh_ttl() -> None:
+    """滑窗续期主密钥（每次访问控制台时调用）。重置 TTL 为 30 天。"""
+    try:
+        r = httpx.post(
+            f"{config.KV_URL}/expire/{KV_KEY}/{config.MASTER_KEY_TTL}",
+            headers=_kv_headers(),
+        )
+        r.raise_for_status()
+    except Exception:
+        pass  # 主密钥不在 KV 里就不续，不报错
 
 
 def is_unlocked() -> bool:
-    return _state.unlocked
+    """检查 KV 中是否有主密钥。"""
+    try:
+        r = httpx.get(f"{config.KV_URL}/get/{KV_KEY}", headers=_kv_headers())
+        r.raise_for_status()
+        return r.json().get("result") is not None
+    except Exception:
+        return False
 
 
 def get_master_key() -> bytes:
-    if _state.master_key is None:
+    """从 KV 取主密钥。不存在则抛异常。"""
+    r = httpx.get(f"{config.KV_URL}/get/{KV_KEY}", headers=_kv_headers())
+    r.raise_for_status()
+    result = r.json().get("result")
+    if result is None:
         raise RuntimeError("服务端处于锁定状态，请先登录 Web 解锁")
-    return _state.master_key
+    return base64.b64decode(result)
 
 
 # ---------- 密钥条目加解密 ----------
@@ -84,7 +107,6 @@ def decrypt_key(blob: str) -> str:
     return pt.decode("utf-8")
 
 
-# 用于比较 token / 密码等，避免时序攻击
 def secure_eq(a: str | bytes, b: str | bytes) -> bool:
     if isinstance(a, str):
         a = a.encode("utf-8")

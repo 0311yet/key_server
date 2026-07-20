@@ -63,6 +63,8 @@ def logout(response: Response):
 def dashboard(request: Request):
     if not auth.parse_session_cookie(request.cookies.get(auth.SESSION_COOKIE, "")):
         return RedirectResponse(url="/login", status_code=302)
+    # 每次打开控制台，刷新主密钥 KV TTL
+    crypto.refresh_ttl()
     keys = db.list_keys()
     pending = db.list_pending()
     tokens = db.list_tokens()

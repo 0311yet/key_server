@@ -9,11 +9,26 @@ from sqlmodel import Session, create_engine, select, SQLModel
 from . import config
 from .models import KeyEntry, AIToken, PendingConnection, Setting
 
-engine = create_engine(
-    f"sqlite:///{config.DB_FILE}",
-    echo=False,
-    connect_args={"check_same_thread": False},
-)
+# 检测 TURSO_DATABASE_URL 确定模式
+if config.TURSO_DATABASE_URL:
+    # sqlalchemy-libsql 格式："sqlite+libsql://<TURSO_URL>"
+    raw_url = config.TURSO_DATABASE_URL
+    if raw_url.startswith("libsql://"):
+        raw_url = raw_url[len("libsql://"):]
+    engine = create_engine(
+        f"sqlite+libsql://{raw_url}",
+        echo=False,
+        connect_args={
+            "auth_token": config.TURSO_AUTH_TOKEN,
+            "check_same_thread": False,
+        },
+    )
+else:
+    engine = create_engine(
+        f"sqlite:///{config.DB_FILE}",
+        echo=False,
+        connect_args={"check_same_thread": False},
+    )
 
 
 @contextlib.contextmanager
