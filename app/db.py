@@ -124,6 +124,16 @@ def update_token(row: AIToken, expires_at: dt.datetime | None = None,
         s.commit()
 
 
+def delete_token(token_id: int) -> bool:
+    with get_session() as s:
+        row = s.get(AIToken, token_id)
+        if row:
+            s.delete(row)
+            s.commit()
+            return True
+        return False
+
+
 # ---------- PendingConnection ----------
 
 def create_pending(connect_id: str, client_name: str, ip: str | None,

@@ -64,7 +64,7 @@
     <section class="panel">
         <h2>已授权客户端 <span class="count">({{ tokens|length }})</span></h2>
         <table>
-            <thead><tr><th>名称</th><th>状态</th><th>创建</th><th>到期</th><th>最后使用</th></tr></thead>
+            <thead><tr><th>名称</th><th>状态</th><th>创建</th><th>到期</th><th>最后使用</th><th>操作</th></tr></thead>
             <tbody>
             {% for t in tokens %}
             <tr>
@@ -73,10 +73,11 @@
                 <td>{{ t.created_at.isoformat() if t.created_at else '' }}</td>
                 <td>{{ t.expires_at.isoformat() if t.expires_at else '' }}</td>
                 <td>{{ t.last_used_at.isoformat() if t.last_used_at else '从未使用' }}</td>
+                <td><button class="revoke" data-id="{{ t.id }}">删除</button></td>
             </tr>
             {% endfor %}
             {% if tokens|length == 0 %}
-            <tr><td colspan="5" class="empty">暂无已授权客户端</td></tr>
+            <tr><td colspan="6" class="empty">暂无已授权客户端</td></tr>
             {% endif %}
             </tbody>
         </table>

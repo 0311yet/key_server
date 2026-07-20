@@ -62,6 +62,8 @@ button:disabled { background: #aaa; cursor: not-allowed; }
 .approve:hover { background: #229954; }
 .deny { background: #999; }
 .deny:hover { background: #888; }
+.revoke { background: #e74c3c; font-size: 12px; padding: 4px 10px; }
+.revoke:hover { background: #d04335; }
 
 .logout { background: #666; }
 .logout:hover { background: #555; }

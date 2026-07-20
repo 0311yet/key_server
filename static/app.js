@@ -71,8 +71,17 @@
         btn.addEventListener("click", async () => {
             const id = btn.dataset.id;
             if (!confirm("确认拒绝此连接？")) return;
-            // 拒绝 = 删除 pending 记录（简化）
             const res = await postForm(`/connect/${id}/deny`, {});
+            if (res.ok) window.location.reload();
+            else alert(res.error || "失败");
+        });
+    });
+
+    document.querySelectorAll(".revoke").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+            const id = btn.dataset.id;
+            if (!confirm("确认删除此客户端？此操作不可撤销。")) return;
+            const res = await postForm("/dashboard/delete_token", { token_id: id });
             if (res.ok) window.location.reload();
             else alert(res.error || "失败");
         });

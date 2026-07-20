@@ -93,6 +93,15 @@ def delete_key(name: str = Form(...), request: Request = None):
     return {"ok": ok}
 
 
+# ---------- /dashboard/delete_token ----------
+@app.post("/dashboard/delete_token")
+def delete_token_endpoint(token_id: int = Form(...), request: Request = None):
+    if not auth.parse_session_cookie(request.cookies.get(auth.SESSION_COOKIE, "")):
+        return {"ok": False, "error": "未登录"}
+    ok = db.delete_token(token_id)
+    return {"ok": ok}
+
+
 # ---------- AI 连接流程 ----------
 @app.post("/api/connect")
 def connect(client_name: str = Form(...), request: Request = None):
