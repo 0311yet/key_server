@@ -250,28 +250,47 @@ def list_tokens_api(request: Request):
 def debug():
     import hashlib
     from . import config, db as _db
+    
+    # 检查环境变量
+    env_info = {
+        "TURSO_DATABASE_URL_set": bool(config.TURSO_DATABASE_URL),
+        "TURSO_DATABASE_URL_prefix": config.TURSO_DATABASE_URL[:20] + "..." if config.TURSO_DATABASE_URL else "(empty)",
+        "KV_URL_set": bool(config.KV_URL),
+        "LOGIN_PASSWORD_set": bool(config.LOGIN_PASSWORD),
+        "LOGIN_PASSWORD_prefix": config.LOGIN_PASSWORD[:4] + "..." if config.LOGIN_PASSWORD else "(empty)",
+    }
+    
+    # 检查数据库
     stored = _db.get_password_hash()
-    try:
-        algo, iters, salt_hex, stored_hash = stored.split("$")
-        salt = bytes.fromhex(salt_hex)
-        
-        # 测试几个常见密码
-        test_passwords = ["test123!@#", config.LOGIN_PASSWORD, "admin", "password"]
-        results = {}
-        for pwd in test_passwords:
-            h = hashlib.pbkdf2_hmac("sha256", pwd.encode(), salt, int(iters))
-            results[pwd[:8] + "***" if len(pwd) > 8 else pwd] = (h.hex() == stored_hash)
-        
-        return {
-            "stored_algo": algo,
-            "stored_iters": iters,
-            "stored_salt_prefix": salt_hex[:8] + "...",
-            "env_password_prefix": config.LOGIN_PASSWORD[:4] + "...",
-            "env_matches_stored": config.LOGIN_PASSWORD == "test123!@#",
-            "test_results": results,
-        }
-    except Exception as e:
-        return {"error": str(e), "stored": stored}
+    
+    # 检查 _USING_TURSO
+    from . import db as _db_module
+    using_turso = _db_module._USING_TURSO
+    
+    results = {
+        "env": env_info,
+        "_USING_TURSO": using_turso,
+        "stored_hash": stored,
+    }
+    
+    if stored:
+        try:
+            algo, iters, salt_hex, stored_hash = stored.split("$")
+            salt = bytes.fromhex(salt_hex)
+            
+            test_passwords = ["test123!@#", config.LOGIN_PASSWORD, "admin", "password"]
+            test_results = {}
+            for pwd in test_passwords:
+                if pwd:
+                    h = hashlib.pbkdf2_hmac("sha256", pwd.encode(), salt, int(iters))
+                    test_results[pwd] = (h.hex() == stored_hash)
+            
+            results["test_results"] = test_results
+            results["stored_salt_prefix"] = salt_hex[:8] + "..."
+        except Exception as e:
+            results["parse_error"] = str(e)
+    
+    return results
 
 
 # ---------- /health ----------
