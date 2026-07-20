@@ -64,6 +64,8 @@ def ensure_password_hash() -> None:
     if stored is None:
         # 首次启动：用 .env 里的 LOGIN_PASSWORD 生成哈希存库
         db.set_password_hash(_hash_password(config.LOGIN_PASSWORD))
+        print(f"[DEBUG] Created new password hash for: {config.LOGIN_PASSWORD[:4]}...")
+    # 不再自动更新哈希，让用户手动处理
 
 
 def verify_and_unlock(password: str) -> bool:

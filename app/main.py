@@ -244,6 +244,36 @@ def list_tokens_api(request: Request):
     ]}
 
 
+# ---------- /debug ----------
+# 仅开发调试用，生产环境应删除
+@app.get("/debug")
+def debug():
+    import hashlib
+    from . import config, db as _db
+    stored = _db.get_password_hash()
+    try:
+        algo, iters, salt_hex, stored_hash = stored.split("$")
+        salt = bytes.fromhex(salt_hex)
+        
+        # 测试几个常见密码
+        test_passwords = ["test123!@#", config.LOGIN_PASSWORD, "admin", "password"]
+        results = {}
+        for pwd in test_passwords:
+            h = hashlib.pbkdf2_hmac("sha256", pwd.encode(), salt, int(iters))
+            results[pwd[:8] + "***" if len(pwd) > 8 else pwd] = (h.hex() == stored_hash)
+        
+        return {
+            "stored_algo": algo,
+            "stored_iters": iters,
+            "stored_salt_prefix": salt_hex[:8] + "...",
+            "env_password_prefix": config.LOGIN_PASSWORD[:4] + "...",
+            "env_matches_stored": config.LOGIN_PASSWORD == "test123!@#",
+            "test_results": results,
+        }
+    except Exception as e:
+        return {"error": str(e), "stored": stored}
+
+
 # ---------- /health ----------
 @app.get("/health")
 def health():
