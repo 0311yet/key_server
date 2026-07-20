@@ -18,20 +18,18 @@ templates = Jinja2Templates(directory=str(config.BASE_DIR / "templates"))
 app.mount("/static", StaticFiles(directory=str(config.BASE_DIR / "static")), name="static")
 
 
-# 在每个请求前确保 DB schema 已创建（特别是 :memory: 模式）
+# 在每个请求前确保初始化完成（Vercel serverless + 本地都兼容）
 @app.middleware("http")
 async def init_db_if_needed(request: Request, call_next):
-    if not os.getenv("TURSO_DATABASE_URL"):
-        from app import db as _db
-        _db.init_db()
+    from . import db as _db, auth as _auth
+    # 初始化 DB schema（Turso 模式也适用）
+    _db.init_db()
+    # 确保密码哈希已建立（首次部署时）
+    _auth.ensure_password_hash()
     return await call_next(request)
 
 
-# ---------- 启动时初始化 ----------
-@app.on_event("startup")
-def on_startup() -> None:
-    db.bootstrap()
-    auth.ensure_password_hash()
+# ---------- Vercel serverless 不支持 on_event("startup")，已改用 middleware ----------
 
 
 # ---------- / ----------
