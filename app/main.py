@@ -36,13 +36,17 @@ app.mount("/static", StaticFiles(directory=str(config.BASE_DIR / "static")), nam
 
 
 # 在每个请求前确保初始化完成（Vercel serverless + 本地都兼容）
+# 使用 module-level 标记，只在首个请求时初始化一次
+_init_done = False
+
 @app.middleware("http")
-async def init_db_if_needed(request: Request, call_next):
+async def init_once_middleware(request: Request, call_next):
+    global _init_done
     from . import db as _db, auth as _auth
-    # 初始化 DB schema（Turso 模式也适用）
-    _db.init_db()
-    # 确保密码哈希已建立（首次部署时）
-    _auth.ensure_password_hash()
+    if not _init_done:
+        _db.init_db()
+        _auth.ensure_password_hash()
+        _init_done = True
     return await call_next(request)
 
 
@@ -110,8 +114,6 @@ def logout(response: Response, request: Request = None):
 def dashboard(request: Request, response: Response):
     if not auth.parse_session_cookie(request.cookies.get(auth.SESSION_COOKIE, "")):
         return RedirectResponse(url="/login", status_code=302)
-    # 每次打开控制台，刷新主密钥 KV TTL
-    crypto.refresh_ttl()
     keys = db.list_keys()
     pending = db.list_pending()
     tokens = db.list_tokens()
