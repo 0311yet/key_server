@@ -72,20 +72,25 @@ def render(name: str, **context) -> HTMLResponse:
 app.mount("/static", StaticFiles(directory=str(config.BASE_DIR / "static")), name="static")
 
 
-# ---------- Vercel rewrites 路径修正 ----------
-# Vercel 把 /(.*) 重写到 /api/index 后，ASGI scope["path"] 可能带上
-# /api/index 前缀，导致 FastAPI 路由匹配失败（返回 404）。
-# 此中间件在路由匹配前执行，去掉前缀。
+# ---------- Vercel rewrites 路径修正 + 调试 ----------
 @app.middleware("http")
 async def _vercel_path_fix(request: Request, call_next):
     path = request.scope.get("path", "")
+    root_path = request.scope.get("root_path", "")
+    raw_path = request.scope.get("raw_path", b"")
+    # 调试日志：输出 ASGI 收到的真实路径信息
+    print(f"[vercel-debug] path={path!r} root_path={root_path!r} raw_path={raw_path!r}")
     if path == "/api/index" or path == "/api/index/":
         request.scope["path"] = "/"
         request.scope["raw_path"] = b"/"
+        print(f"[vercel-debug] fixed path -> '/'")
     elif path.startswith("/api/index/"):
         request.scope["path"] = path[len("/api/index"):]
         request.scope["raw_path"] = request.scope["path"].encode()
-    return await call_next(request)
+        print(f"[vercel-debug] fixed path -> {request.scope['path']!r}")
+    response = await call_next(request)
+    print(f"[vercel-debug] response status={response.status_code}")
+    return response
 
 
 # 在每个请求前确保初始化完成（Vercel serverless + 本地都兼容）
@@ -103,6 +108,24 @@ async def init_once_middleware(request: Request, call_next):
     return await call_next(request)
 
 
+# ---------- 调试 catch-all（最后注册，优先级最低）----------
+@app.api_route("/{full_path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
+def _debug_catch_all(full_path: str, request: Request):
+    routes_info = []
+    for r in app.routes:
+        routes_info.append({
+            "path": getattr(r, "path", None),
+            "methods": sorted(getattr(r, "methods", []) or []),
+            "type": type(r).__name__,
+        })
+    return JSONResponse({
+        "debug": True,
+        "requested_path": "/" + full_path,
+        "scope_path": request.scope.get("path", ""),
+        "scope_root_path": request.scope.get("root_path", ""),
+        "route_count": len(app.routes),
+        "registered_routes": routes_info,
+    })
 
 
 # ---------- / ----------
