@@ -72,6 +72,22 @@ def render(name: str, **context) -> HTMLResponse:
 app.mount("/static", StaticFiles(directory=str(config.BASE_DIR / "static")), name="static")
 
 
+# ---------- Vercel rewrites 路径修正 ----------
+# Vercel 把 /(.*) 重写到 /api/index 后，ASGI scope["path"] 可能带上
+# /api/index 前缀，导致 FastAPI 路由匹配失败（返回 404）。
+# 此中间件在路由匹配前执行，去掉前缀。
+@app.middleware("http")
+async def _vercel_path_fix(request: Request, call_next):
+    path = request.scope.get("path", "")
+    if path == "/api/index" or path == "/api/index/":
+        request.scope["path"] = "/"
+        request.scope["raw_path"] = b"/"
+    elif path.startswith("/api/index/"):
+        request.scope["path"] = path[len("/api/index"):]
+        request.scope["raw_path"] = request.scope["path"].encode()
+    return await call_next(request)
+
+
 # 在每个请求前确保初始化完成（Vercel serverless + 本地都兼容）
 # 使用 module-level 标记，只在首个请求时初始化一次
 _init_done = False
