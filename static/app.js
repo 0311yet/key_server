@@ -12,7 +12,6 @@
         }
         return "";
     }
-
     async function postForm(url, data) {
         const body = new URLSearchParams(data);
         const headers = { "Content-Type": "application/x-www-form-urlencoded" };
@@ -25,7 +24,6 @@
         });
         return r.json();
     }
-
     async function getJson(url) {
         const r = await fetch(url, { signal: AbortSignal.timeout(30000) });
         if (!r.ok) {
@@ -35,7 +33,6 @@
         }
         return r.json();
     }
-
     // ====== 登录页 ======
     const loginForm = document.getElementById("login-form");
     if (loginForm) {
@@ -53,16 +50,23 @@
         });
         return;
     }
-
     // ====== 控制台 ======
     let pollTimer = null;
-
     function renderPage(data) {
-        renderKeys(data.keys || []);
-        renderPending(data.pending || []);
-        renderTokens(data.tokens || []);
+        const keys = data.keys || [];
+        const pending = data.pending || [];
+        const tokens = data.tokens || [];
+        renderKeys(keys);
+        renderPending(pending);
+        renderTokens(tokens);
+        // 同步更新顶部统计卡片
+        const sk = document.getElementById("stat-keys");
+        const sp = document.getElementById("stat-pending");
+        const sc = document.getElementById("stat-clients");
+        if (sk) sk.textContent = keys.length;
+        if (sp) sp.textContent = pending.length;
+        if (sc) sc.textContent = tokens.length;
     }
-
     function renderKeys(keys) {
         const tbody = document.getElementById("keys-tbody");
         const countEl = document.getElementById("keys-count");
@@ -78,7 +82,6 @@
                 <td><button class="del" data-name="${escHtml(k.name)}">删除</button></td>
             </tr>
         `).join("");
-
         // 重新绑定删除按钮
         tbody.querySelectorAll(".del").forEach(btn => {
             btn.onclick = async () => {
@@ -90,7 +93,6 @@
             };
         });
     }
-
     function renderPending(pending) {
         const tbody = document.getElementById("pending-tbody");
         const countEl = document.getElementById("pending-count");
@@ -110,7 +112,6 @@
                 </td>
             </tr>
         `).join("");
-
         tbody.querySelectorAll(".approve").forEach(btn => {
             btn.onclick = async () => {
                 const res = await postForm(`/connect/${btn.dataset.id}/approve`, {});
@@ -129,7 +130,6 @@
             };
         });
     }
-
     function renderTokens(tokens) {
         const tbody = document.getElementById("tokens-tbody");
         const countEl = document.getElementById("tokens-count");
@@ -141,14 +141,13 @@
         tbody.innerHTML = tokens.map(t => `
             <tr>
                 <td>${escHtml(t.client_name)}</td>
-                <td>${escHtml(t.status)}</td>
+                <td><span class="status-badge ${escHtml(t.status)}">${escHtml(t.status)}</span></td>
                 <td>${escHtml(t.created_at || '')}</td>
                 <td>${escHtml(t.expires_at || '')}</td>
                 <td>${escHtml(t.last_used_at || '从未使用')}</td>
                 <td><button class="revoke" data-id="${t.id}">删除</button></td>
             </tr>
         `).join("");
-
         tbody.querySelectorAll(".revoke").forEach(btn => {
             btn.onclick = async () => {
                 if (!confirm("确认删除此客户端？此操作不可撤销。")) return;
@@ -158,13 +157,11 @@
             };
         });
     }
-
     function escHtml(s) {
         const div = document.createElement("div");
         div.textContent = s;
         return div.innerHTML;
     }
-
     async function loadDashboard(retries = 3, backoff = 1000) {
         try {
             const data = await getJson("/api/dashboard/data");
@@ -182,16 +179,17 @@
             // 不覆盖首屏数据，用户仍可看到已渲染的内容
         }
     }
-
     // 首屏渲染：优先用 window.__DATA__（服务端注入，立即显示）
-    if (window.__DATA__) {
+    const hasSsrData = !!window.__DATA__;
+    if (hasSsrData) {
         renderPage(window.__DATA__);
     }
-    // 立即后台拉取最新数据（首屏已有则无感更新）
-    loadDashboard();
-    // 每 3 秒轮询
-    pollTimer = setInterval(loadDashboard, 3000);
-
+    // SSR 已注入数据则跳过首次 AJAX（数据不可能在毫秒级变化），减少一次服务端查询
+    if (!hasSsrData) {
+        loadDashboard();
+    }
+    // 每 15 秒轮询（原 3 秒过于频繁，对 Serverless 函数造成不必要的冷启动和 DB 查询）
+    pollTimer = setInterval(loadDashboard, 15000);
     // 添加 key 表单
     const addForm = document.getElementById("add-form");
     if (addForm) {
@@ -210,7 +208,6 @@
             }
         });
     }
-
     // 退出登录
     const logoutBtn = document.getElementById("logout-btn");
     if (logoutBtn) {
@@ -220,5 +217,4 @@
             window.location.href = "/login";
         };
     }
-
 })();

@@ -1,5 +1,4 @@
 """方案 B（Vercel/Turso 适配版）：口令派生主密钥 + AES-GCM 加解密。
-
 - MASTER_KEY 由登录密码经 scrypt 派生而来。
 - 主密钥写入 Upstash Redis KV（不存进程内存），带滑窗 TTL。
 - 每次加解密操作从 KV 取主密钥。
@@ -10,19 +9,15 @@ import os
 import base64
 import hmac
 import httpx
-
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
-
 from . import config
-
 KV_KEY = "master_key"
-
-
+# 进程内主密钥缓存：解锁后写入，避免每次加解密都远程查 Upstash。
+# Vercel 单实例生命周期内有效；冷启动后自然为空，需重新登录解锁。
+_cached_master_key: bytes | None = None
 def _kv_headers() -> dict:
     return {"Authorization": f"Bearer {config.KV_TOKEN}"}
-
-
 def derive_master_key(password: str) -> bytes:
     """用 scrypt 从密码派生 32 字节主密钥。"""
     kdf = Scrypt(
@@ -33,16 +28,15 @@ def derive_master_key(password: str) -> bytes:
         p=1,
     )
     return kdf.derive(password.encode("utf-8"))
-
-
 def unlock(password: str) -> bool:
     """派生主密钥，写入 KV，TTL=30 天。调用方需先验证密码。
-
     Upstash REST API 格式：
       - SETEX：POST /setex/KEY  -d 'VALUE'   （TTL 秒通过 query param 或先 set 再 expire）
       - 实际用 SET + EXPIRE 两步（Upstash 不支持 PATH 拼接 setex/key/ttl/value）
     """
     mk = derive_master_key(password)
+    global _cached_master_key
+    _cached_master_key = mk  # 写入进程缓存，后续加解密零远程调用
     b64 = base64.b64encode(mk).decode()
     h = _kv_headers()
     # SET
@@ -55,15 +49,13 @@ def unlock(password: str) -> bool:
     )
     r.raise_for_status()
     return True
-
-
 def lock() -> None:
-    """锁定：从 KV 删除主密钥。"""
+    """锁定：从 KV 删除主密钥，并清除进程缓存。"""
+    global _cached_master_key
+    _cached_master_key = None
     r = httpx.post(f"{config.KV_URL}/del/{KV_KEY}",
                    headers=_kv_headers())
     r.raise_for_status()
-
-
 def refresh_ttl() -> None:
     """滑窗续期主密钥（每次访问控制台时调用）。重置 TTL 为 30 天。"""
     try:
@@ -74,30 +66,36 @@ def refresh_ttl() -> None:
         r.raise_for_status()
     except Exception:
         pass
-
-
 def is_unlocked() -> bool:
-    """检查 KV 中是否有主密钥。"""
+    """检查是否已解锁：优先查进程缓存，缓存未命中才查 Upstash KV。"""
+    global _cached_master_key
+    if _cached_master_key is not None:
+        return True
     try:
         r = httpx.get(f"{config.KV_URL}/get/{KV_KEY}", headers=_kv_headers())
         r.raise_for_status()
-        return r.json().get("result") is not None
+        result = r.json().get("result")
+        if result is not None:
+            # KV 里有但进程缓存为空（如其他实例解锁后本实例被复用），回填缓存
+            _cached_master_key = base64.b64decode(result)
+            return True
+        return False
     except Exception:
         return False
-
-
 def get_master_key() -> bytes:
-    """从 KV 取主密钥。不存在则抛异常。"""
+    """取主密钥：优先进程缓存，未命中才从 KV 拉取。不存在则抛异常。"""
+    global _cached_master_key
+    if _cached_master_key is not None:
+        return _cached_master_key
     r = httpx.get(f"{config.KV_URL}/get/{KV_KEY}", headers=_kv_headers())
     r.raise_for_status()
     result = r.json().get("result")
     if result is None:
         raise RuntimeError("服务端处于锁定状态，请先登录 Web 解锁")
-    return base64.b64decode(result)
-
-
+    mk = base64.b64decode(result)
+    _cached_master_key = mk
+    return mk
 # ---------- 密钥条目加解密 ----------
-
 def encrypt_key(plaintext: str) -> str:
     """加密一条 key 明文，返回 base64(nonce || ciphertext||tag)，可安全存库。"""
     key = get_master_key()
@@ -105,8 +103,6 @@ def encrypt_key(plaintext: str) -> str:
     nonce = os.urandom(12)
     ct = aes.encrypt(nonce, plaintext.encode("utf-8"), None)
     return base64.b64encode(nonce + ct).decode("ascii")
-
-
 def decrypt_key(blob: str) -> str:
     """解密 encrypt_key 的输出，还原 key 明文。"""
     key = get_master_key()
@@ -115,8 +111,6 @@ def decrypt_key(blob: str) -> str:
     nonce, ct = raw[:12], raw[12:]
     pt = aes.decrypt(nonce, ct, None)
     return pt.decode("utf-8")
-
-
 def secure_eq(a: str | bytes, b: str | bytes) -> bool:
     if isinstance(a, str):
         a = a.encode("utf-8")

@@ -1,27 +1,23 @@
 """数据库层：SQLite（VPS 本地）或 httpx + Turso HTTP API（Vercel）。
-
 切换方式：环境变量 TURSO_DATABASE_URL 非空时走 Turso 模式。
 """
 from __future__ import annotations
 import datetime as dt
 import httpx
-
 from . import config
-
 _USING_TURSO = bool(config.TURSO_DATABASE_URL)
-
-
 # ============================================================
 # 初始化
 # ============================================================
 if _USING_TURSO:
     _TURSO_BASE = config.TURSO_DATABASE_URL.rstrip("/").replace("libsql://", "https://", 1)
     _TURSO_HEADERS = {"Authorization": f"Bearer {config.TURSO_AUTH_TOKEN}"}
-
-    def _http() -> httpx.Client:
-        return httpx.Client(base_url=_TURSO_BASE, headers=_TURSO_HEADERS,
-                            follow_redirects=True, timeout=30.0)
-
+    # 全局共享 httpx.Client：复用 TCP+TLS 连接，避免每次 SQL 都重新握手。
+    # Vercel 单实例生命周期内有效；冷启动后自然重建。
+    _turso_client = httpx.Client(
+        base_url=_TURSO_BASE, headers=_TURSO_HEADERS,
+        follow_redirects=True, timeout=30.0,
+    )
     def _serialize(val):
         """Python 值 → Turso typed value dict。"""
         if val is None:
@@ -38,41 +34,46 @@ if _USING_TURSO:
         if isinstance(val, dt.datetime):
             return {"type": "text", "value": val.isoformat()}
         return {"type": "text", "value": str(val)}
-
     def _run(sql: str, args: tuple = ()) -> list[dict]:
         """Turso: 执行 SQL 返回行列表。"""
-        with _http() as client:
-            r = client.post("/v2/pipeline", json={
-                "requests": [{"type": "execute", "stmt": {"sql": sql, "args": [_serialize(a) for a in args]}}]
-            })
-            r.raise_for_status()
-            results = r.json().get("results", [])
-            if not results:
-                return []
-            res = results[0]
-            if res.get("type") == "error":
-                raise RuntimeError(f"SQL error: {res}")
-            resp = res.get("response", {})
-            result_data = resp.get("result", {})
-            cols = result_data.get("cols", [])
-            rows = result_data.get("rows", [])
-            out = []
-            for row in rows:
-                obj = {}
-                for i, cell in enumerate(row):
-                    col_name = cols[i]["name"] if i < len(cols) else f"col{i}"
-                    obj[col_name] = _deserialize(cell, col_name)
-                out.append(obj)
-            return out
-
+        r = _turso_client.post("/v2/pipeline", json={
+            "requests": [{"type": "execute", "stmt": {"sql": sql, "args": [_serialize(a) for a in args]}}]
+        })
+        r.raise_for_status()
+        results = r.json().get("results", [])
+        if not results:
+            return []
+        res = results[0]
+        if res.get("type") == "error":
+            raise RuntimeError(f"SQL error: {res}")
+        resp = res.get("response", {})
+        result_data = resp.get("result", {})
+        cols = result_data.get("cols", [])
+        rows = result_data.get("rows", [])
+        out = []
+        for row in rows:
+            obj = {}
+            for i, cell in enumerate(row):
+                col_name = cols[i]["name"] if i < len(cols) else f"col{i}"
+                obj[col_name] = _deserialize(cell, col_name)
+            out.append(obj)
+        return out
     def _exec(sql: str, args: tuple = ()) -> None:
         """Turso: 执行写 SQL。"""
-        with _http() as client:
-            r = client.post("/v2/pipeline", json={
-                "requests": [{"type": "execute", "stmt": {"sql": sql, "args": [_serialize(a) for a in args]}}]
-            })
-            r.raise_for_status()
-
+        r = _turso_client.post("/v2/pipeline", json={
+            "requests": [{"type": "execute", "stmt": {"sql": sql, "args": [_serialize(a) for a in args]}}]
+        })
+        r.raise_for_status()
+    def _exec_many(statements: list[str]) -> None:
+        """Turso: 一次 pipeline 请求批量执行多条无参数 SQL（用于建表等初始化）。"""
+        r = _turso_client.post("/v2/pipeline", json={
+            "requests": [{"type": "execute", "stmt": {"sql": s, "args": []}} for s in statements]
+        })
+        r.raise_for_status()
+        # 检查每条是否报错
+        for res in r.json().get("results", []):
+            if res.get("type") == "error":
+                raise RuntimeError(f"SQL error in batch: {res}")
     def _deserialize(v, col_name: str = ""):
         """Turso {type,value} → Python 对象。col_name 决定是否将 text 解析为 datetime。"""
         if not isinstance(v, dict) or "type" not in v:
@@ -97,7 +98,6 @@ if _USING_TURSO:
             import base64
             return base64.b64decode(val) if val else b""
         return v
-
     def _row(d: dict):
         """字典 → 属性对象，兼容调用方的 .id .name 等访问。"""
         class Row:
@@ -105,7 +105,6 @@ if _USING_TURSO:
                 for k, v in data.items():
                     setattr(self, k, _deserialize(v, col_name=k))
         return Row(d) if d else None
-
     def init_db():
         stmts = [
             "CREATE TABLE IF NOT EXISTS settings (id INTEGER PRIMARY KEY, key TEXT UNIQUE NOT NULL, value TEXT)",
@@ -115,33 +114,23 @@ if _USING_TURSO:
             "CREATE INDEX IF NOT EXISTS idx_keys_name ON keys(name)",
             "CREATE INDEX IF NOT EXISTS idx_tokens_hash ON ai_tokens(token_hash)",
         ]
-        for s in stmts:
-            _exec(s)
-
+        _exec_many(stmts)  # 6条SQL合并为1次HTTP请求，冷启动延迟大幅降低
 else:
     from sqlmodel import Session, create_engine, select, SQLModel
     from .models import KeyEntry, AIToken, PendingConnection, Setting
-
     _engine = create_engine(
         f"sqlite:///{config.DB_FILE}",
         echo=False, connect_args={"check_same_thread": False},
     )
-
     def get_session():
         with Session(_engine) as s:
             yield s
-
     def init_db():
         SQLModel.metadata.create_all(_engine)
-
-
 # ============================================================
 # 公开函数（模式无关，内部引用 _USING_TURSO）
 # ============================================================
-
 SETTING_PWD_HASH = "login_password_hash"
-
-
 def get_password_hash() -> str | None:
     if _USING_TURSO:
         rows = _run("SELECT key, value FROM settings WHERE key = ?", ("login_password_hash",))
@@ -151,8 +140,6 @@ def get_password_hash() -> str | None:
     with Session(_engine) as s:
         row = s.get(Setting, SETTING_PWD_HASH)
         return row.value if row else None
-
-
 def set_password_hash(h: str) -> None:
     if _USING_TURSO:
         _exec("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (SETTING_PWD_HASH, h))
@@ -164,23 +151,17 @@ def set_password_hash(h: str) -> None:
         else:
             s.add(Setting(key=SETTING_PWD_HASH, value=h))
         s.commit()
-
-
 def list_keys() -> list:
     if _USING_TURSO:
         return [_row(r) for r in _run("SELECT name, created_at FROM keys ORDER BY name")]
     with Session(_engine) as s:
         return list(s.exec(select(KeyEntry).order_by(KeyEntry.name)).all())
-
-
 def get_key(name: str):
     if _USING_TURSO:
         rows = _run("SELECT name, value, created_at, updated_at FROM keys WHERE name = ?", (name,))
         return _row(rows[0]) if rows else None
     with Session(_engine) as s:
         return s.exec(select(KeyEntry).where(KeyEntry.name == name)).first()
-
-
 def upsert_key(name: str, encrypted_value: str) -> None:
     if _USING_TURSO:
         now = dt.datetime.utcnow().isoformat()
@@ -198,8 +179,6 @@ def upsert_key(name: str, encrypted_value: str) -> None:
         else:
             s.add(KeyEntry(name=name, value=encrypted_value))
         s.commit()
-
-
 def delete_key(name: str) -> bool:
     if _USING_TURSO:
         if not _run("SELECT id FROM keys WHERE name = ?", (name,)):
@@ -213,8 +192,6 @@ def delete_key(name: str) -> bool:
             s.commit()
             return True
         return False
-
-
 def get_token_by_hash(token_hash: str):
     if _USING_TURSO:
         rows = _run(
@@ -223,8 +200,6 @@ def get_token_by_hash(token_hash: str):
         return _row(rows[0]) if rows else None
     with Session(_engine) as s:
         return s.exec(select(AIToken).where(AIToken.token_hash == token_hash)).first()
-
-
 def list_tokens() -> list:
     if _USING_TURSO:
         return [_row(r) for r in _run(
@@ -232,8 +207,6 @@ def list_tokens() -> list:
             " FROM ai_tokens ORDER BY created_at DESC")]
     with Session(_engine) as s:
         return list(s.exec(select(AIToken).order_by(AIToken.created_at.desc())).all())
-
-
 def create_token(client_name: str, token_hash: str, expires_at: dt.datetime,
                  ip: str | None):
     if _USING_TURSO:
@@ -254,8 +227,6 @@ def create_token(client_name: str, token_hash: str, expires_at: dt.datetime,
         s.commit()
         s.refresh(row)
         return row
-
-
 def update_token(row, expires_at: dt.datetime | None = None,
                  last_used_at: dt.datetime | None = None,
                  last_ip: str | None = None, status: str | None = None) -> None:
@@ -285,8 +256,6 @@ def update_token(row, expires_at: dt.datetime | None = None,
             db_row.status = status
         s.add(db_row)
         s.commit()
-
-
 def delete_token(token_id: int) -> bool:
     if _USING_TURSO:
         if not _run("SELECT id FROM ai_tokens WHERE id = ?", (token_id,)):
@@ -300,8 +269,6 @@ def delete_token(token_id: int) -> bool:
             s.commit()
             return True
         return False
-
-
 def create_pending(connect_id: str, client_name: str, ip: str | None,
                    ua: str | None):
     if _USING_TURSO:
@@ -321,8 +288,6 @@ def create_pending(connect_id: str, client_name: str, ip: str | None,
         s.commit()
         s.refresh(row)
         return row
-
-
 def get_pending(connect_id: str):
     if _USING_TURSO:
         rows = _run(
@@ -332,8 +297,6 @@ def get_pending(connect_id: str):
     with Session(_engine) as s:
         return s.exec(select(PendingConnection).where(
             PendingConnection.connect_id == connect_id)).first()
-
-
 def list_pending() -> list:
     if _USING_TURSO:
         return [_row(r) for r in _run(
@@ -343,8 +306,6 @@ def list_pending() -> list:
         return list(s.exec(
             select(PendingConnection).where(PendingConnection.status == "pending")
             .order_by(PendingConnection.created_at.desc())).all())
-
-
 def set_pending_status(pending_id: int, status: str) -> None:
     if _USING_TURSO:
         _exec("UPDATE pending_connections SET status = ? WHERE id = ?", (status, pending_id))
@@ -355,5 +316,3 @@ def set_pending_status(pending_id: int, status: str) -> None:
             row.status = status
             s.add(row)
             s.commit()
-
-
