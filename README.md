@@ -2,8 +2,8 @@
 
 自托管的密钥管理服务，用于集中存储各平台 API 密钥，供 AI 客户端安全调用。
 
-**生产地址**：`https://key-server-wine.vercel.app`
-**管理密码**：`test123!@#`（生产环境请在 Vercel Dashboard 修改环境变量）
+**生产地址**：部署后自行记录（Vercel 分配的 `*.vercel.app` 域名或自定义域名）
+**管理密码**：由 `LOGIN_PASSWORD` 环境变量决定，在 Vercel Dashboard → Settings → Environment Variables 中设置，切勿写入仓库
 
 ---
 
