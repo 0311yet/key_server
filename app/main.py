@@ -72,6 +72,18 @@ def render(name: str, **context) -> HTMLResponse:
 app.mount("/static", StaticFiles(directory=str(config.BASE_DIR / "static")), name="static")
 
 
+# ---------- 调试日志中间件 ----------
+@app.middleware("http")
+async def _debug_log(request: Request, call_next):
+    path = request.scope.get("path", "")
+    method = request.method
+    routes = [getattr(r, "path", None) for r in app.routes]
+    print(f"[debug] >>> {method} {path} (routes={routes})")
+    response = await call_next(request)
+    print(f"[debug] <<< {method} {path} -> {response.status_code}")
+    return response
+
+
 # 在每个请求前确保初始化完成（Vercel serverless + 本地都兼容）
 # 使用 module-level 标记，只在首个请求时初始化一次
 _init_done = False
@@ -90,6 +102,7 @@ async def init_once_middleware(request: Request, call_next):
 # ---------- / ----------
 @app.get("/", response_class=RedirectResponse)
 def root() -> RedirectResponse:
+    print("[debug] root() called, redirecting to /login")
     return RedirectResponse(url="/login", status_code=302)
 
 
@@ -120,6 +133,7 @@ def _set_cookie(response: Response, name: str, value: str, max_age: int = 3600, 
 
 @app.get("/login", response_class=HTMLResponse)
 def login_page():
+    print("[debug] login_page() called")
     token = _make_csrf_token()
     resp = render("login.html", csrf_token=token)
     _set_cookie(resp, "csrf_token", token, max_age=3600)
