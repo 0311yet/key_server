@@ -27,9 +27,11 @@ DB_FILE: str = os.getenv("DB_FILE", str(BASE_DIR / "data" / "key_server.db"))
 TURSO_DATABASE_URL: str = os.getenv("TURSO_DATABASE_URL", "")
 TURSO_AUTH_TOKEN: str = os.getenv("TURSO_AUTH_TOKEN", "")
 
-# Upstash Redis KV（存主密钥）
-KV_URL: str = _env("KV_URL")
-KV_TOKEN: str = _env("KV_TOKEN")
+# Upstash Redis KV（存主密钥）。本地 / 单机开发可留空：
+# 此时主密钥只存进程内存，进程重启即锁定，需重新登录。
+KV_URL: str = os.getenv("KV_URL", "")
+KV_TOKEN: str = os.getenv("KV_TOKEN", "")
+KV_ENABLED: bool = bool(KV_URL and KV_TOKEN)
 
 # 主密钥在 KV 里的 TTL（秒）：默认 30 天
 MASTER_KEY_TTL: int = int(os.getenv("MASTER_KEY_TTL", "2592000"))

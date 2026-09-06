@@ -37,6 +37,8 @@ def unlock(password: str) -> bool:
     mk = derive_master_key(password)
     global _cached_master_key
     _cached_master_key = mk  # 写入进程缓存，后续加解密零远程调用
+    if not config.KV_ENABLED:
+        return True  # 无 KV：只保留进程内主密钥
     b64 = base64.b64encode(mk).decode()
     h = _kv_headers()
     # SET
@@ -53,11 +55,15 @@ def lock() -> None:
     """锁定：从 KV 删除主密钥，并清除进程缓存。"""
     global _cached_master_key
     _cached_master_key = None
+    if not config.KV_ENABLED:
+        return
     r = httpx.post(f"{config.KV_URL}/del/{KV_KEY}",
                    headers=_kv_headers())
     r.raise_for_status()
 def refresh_ttl() -> None:
     """滑窗续期主密钥（每次访问控制台时调用）。重置 TTL 为 30 天。"""
+    if not config.KV_ENABLED:
+        return
     try:
         r = httpx.post(
             f"{config.KV_URL}/expire/{KV_KEY}/{config.MASTER_KEY_TTL}",
@@ -71,6 +77,8 @@ def is_unlocked() -> bool:
     global _cached_master_key
     if _cached_master_key is not None:
         return True
+    if not config.KV_ENABLED:
+        return False  # 无 KV：进程缓存为空即锁定
     try:
         r = httpx.get(f"{config.KV_URL}/get/{KV_KEY}", headers=_kv_headers())
         r.raise_for_status()
@@ -87,6 +95,8 @@ def get_master_key() -> bytes:
     global _cached_master_key
     if _cached_master_key is not None:
         return _cached_master_key
+    if not config.KV_ENABLED:
+        raise RuntimeError("服务端处于锁定状态，请先登录 Web 解锁")
     r = httpx.get(f"{config.KV_URL}/get/{KV_KEY}", headers=_kv_headers())
     r.raise_for_status()
     result = r.json().get("result")

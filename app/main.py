@@ -76,21 +76,13 @@ app.mount("/static", StaticFiles(directory=str(config.BASE_DIR / "static")), nam
 @app.middleware("http")
 async def _vercel_path_fix(request: Request, call_next):
     path = request.scope.get("path", "")
-    root_path = request.scope.get("root_path", "")
-    print(f"[path-fix] BEFORE: path={path!r} root_path={root_path!r}")
     if path == "/api/index" or path == "/api/index/":
         request.scope["path"] = "/"
         request.scope["raw_path"] = b"/"
-        print(f"[path-fix] FIXED: path -> '/'")
     elif path.startswith("/api/index/"):
         request.scope["path"] = path[len("/api/index"):]
         request.scope["raw_path"] = request.scope["path"].encode()
-        print(f"[path-fix] FIXED: path -> {request.scope['path']!r}")
-    else:
-        print(f"[path-fix] NO CHANGE: path={path!r}")
-    response = await call_next(request)
-    print(f"[path-fix] AFTER: status={response.status_code} final_path={request.scope.get('path','')!r}")
-    return response
+    return await call_next(request)
 
 
 # 在每个请求前确保初始化完成（Vercel serverless + 本地都兼容）
@@ -110,7 +102,6 @@ async def init_once_middleware(request: Request, call_next):
 # ---------- / ----------
 @app.get("/", response_class=RedirectResponse)
 def root() -> RedirectResponse:
-    print("[debug] root() called, redirecting to /login")
     return RedirectResponse(url="/login", status_code=302)
 
 
@@ -141,7 +132,6 @@ def _set_cookie(response: Response, name: str, value: str, max_age: int = 3600, 
 
 @app.get("/login", response_class=HTMLResponse)
 def login_page():
-    print("[debug] login_page() called")
     token = _make_csrf_token()
     resp = render("login.html", csrf_token=token)
     _set_cookie(resp, "csrf_token", token, max_age=3600)
@@ -178,6 +168,7 @@ def logout(request: Request = None):
 def dashboard(request: Request):
     if not auth.parse_session_cookie(request.cookies.get(auth.SESSION_COOKIE, "")):
         return RedirectResponse(url="/login", status_code=302)
+    crypto.refresh_ttl()  # 滑窗续期主密钥：只要还在用控制台就不会因 TTL 到期而锁定
     token = _make_csrf_token()
 
     # 首次渲染时直接从 DB 取数据嵌入 HTML，避免依赖 AJAX
@@ -341,6 +332,7 @@ def delete_key_api(name: str, request: Request):
 def dashboard_data_api(request: Request):
     if not auth.parse_session_cookie(request.cookies.get(auth.SESSION_COOKIE, "")):
         return JSONResponse({"ok": False, "error": "未登录"}, status_code=401)
+    crypto.refresh_ttl()  # 前端 15s 轮询即视为活跃，滑窗续期主密钥 TTL
     keys = db.list_keys()
     pending = db.list_pending()
     tokens = db.list_tokens()
