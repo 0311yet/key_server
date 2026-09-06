@@ -136,6 +136,23 @@ def get_key(name: str, client_name: str = "my-app") -> str:
 # api_key = get_key("openai")
 ```
 
+### Agent Skill
+
+`skill/key-server/` 是一个可移植的 Agent Skill：任意支持 skills 的 agent 工具
+（Claude Code / Claude.ai 等）把 `skill/key-server/` 目录拷进自己的 skills 目录后，
+只需 `export KEY_SERVER_URL=<部署地址>`，即可让 agent 通过自然语言取用密钥
+（"从 key server 取 openai 的 key"）。首次连接仍需在 Web 控制台点「同意」。
+
+依赖仅标准库，命令：
+
+```bash
+python skill/key-server/scripts/keyserver.py get <name>      # 取明文
+python skill/key-server/scripts/keyserver.py list            # 列名称
+python skill/key-server/scripts/keyserver.py set <name> <v>  # 增改
+python skill/key-server/scripts/keyserver.py delete <name>   # 删除
+python skill/key-server/scripts/keyserver.py status          # 健康检查
+```
+
 ---
 
 ## API 文档
@@ -178,6 +195,7 @@ key_server/
 │   └── style.css
 ├── api/
 │   └── index.py      # Vercel 入口
+├── skill/key-server/ # 配套 Agent Skill（SKILL.md + scripts/keyserver.py + references/）
 ├── .env              # 配置（不提交）
 ├── .env.example      # 配置模板
 ├── vercel.json
