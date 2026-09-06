@@ -7,3 +7,6 @@ venv/
 *.db
 *.db-journal
 .pi/
+
+.vercel
+.env.local
