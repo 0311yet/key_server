@@ -82,7 +82,7 @@ after a tab, so:
 so it composes cleanly:
 
 ```
-export OPENAI_API_KEY="$(python scripts/keyserver.py get openai)"
+export OPENAI_API_KEY=$(python scripts/keyserver.py get openai)
 ```
 
 ## First-use approval flow
