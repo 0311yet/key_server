@@ -11,8 +11,17 @@ Environment:
 
 Commands:
   get <name>            print the plaintext value of one key
-  list                  print key names, one per line
-  set <name> <value>    add or update a key
+  list                  one key per line: "<name>\t<description>" (description
+                        omitted when empty) - read it to pick the right key
+  list --json           full JSON: name, description, created_at, updated_at
+  set <name> <value> [--desc TEXT]
+                        add or update a key; --desc also sets its description
+                        (without --desc an existing description is kept)
+  set <name> - [--desc TEXT]
+                        same, but read the value from stdin (keeps the secret
+                        out of the command line / shell history / process list)
+  describe <name> <text>
+                        set only the description ("" clears it)
   delete <name>         remove a key
   status                print JSON health {ok, locked}
 
@@ -157,6 +166,8 @@ def _connect_and_wait() -> str:
             _die(1, "connection approved but no token returned; retry")
         if state == "denied":
             _die(6, "The user denied this connection request.")
+        if state == "expired":
+            _die(1, "The approval request expired before it was approved; retry")
         if state == "invalid":
             _die(1, "connect_id became invalid; retry")
     _die(1, "Timed out waiting for web approval.")
@@ -197,15 +208,34 @@ def cmd_get(name: str) -> None:
         sys.stdout.write("\n")
 
 
-def cmd_list() -> None:
+def cmd_list(as_json: bool = False) -> None:
     out = _auth_request("GET", "/api/keys")
-    for k in out.get("keys", []):
-        print(k.get("name", ""))
+    keys = out.get("keys", [])
+    if as_json:
+        print(json.dumps(keys, ensure_ascii=False, indent=2))
+        return
+    for k in keys:
+        desc = " ".join((k.get("description") or "").split())  # 简介里的换行压成一行
+        print(k.get("name", "") + ("\t" + desc if desc else ""))
 
 
-def cmd_set(name: str, value: str) -> None:
-    _auth_request("POST", "/api/keys", form={"name": name, "value": value})
+def cmd_set(name: str, value: str, desc: "str | None" = None) -> None:
+    if value == "-":
+        # 管道 / here-string 末尾常带换行，密钥本身不会以换行结尾
+        value = sys.stdin.read().rstrip("\r\n")
+    if not value:
+        _die(1, "empty value; nothing stored")
+    form = {"name": name, "value": value}
+    if desc is not None:
+        form["description"] = desc
+    _auth_request("POST", "/api/keys", form=form)
     sys.stderr.write(f"stored: {name}\n")
+
+
+def cmd_describe(name: str, text: str) -> None:
+    _auth_request("POST", "/api/keys/" + urllib.parse.quote(name, safe="") + "/description",
+                  form={"description": text})
+    sys.stderr.write(f"description updated: {name}\n")
 
 
 def cmd_delete(name: str) -> None:
@@ -224,12 +254,21 @@ def main(argv: "list[str]") -> None:
     if not argv:
         _die(1, __doc__)
     cmd, rest = argv[0], argv[1:]
+    desc = None
+    if cmd == "set" and "--desc" in rest:
+        i = rest.index("--desc")
+        if i + 1 >= len(rest):
+            _die(1, "--desc needs a value")
+        desc = rest[i + 1]
+        rest = rest[:i] + rest[i + 2:]
     if cmd == "get" and len(rest) == 1:
         cmd_get(rest[0])
-    elif cmd == "list" and not rest:
-        cmd_list()
+    elif cmd == "list" and rest in ([], ["--json"]):
+        cmd_list(as_json=bool(rest))
     elif cmd == "set" and len(rest) == 2:
-        cmd_set(rest[0], rest[1])
+        cmd_set(rest[0], rest[1], desc)
+    elif cmd == "describe" and len(rest) == 2:
+        cmd_describe(rest[0], rest[1])
     elif cmd == "delete" and len(rest) == 1:
         cmd_delete(rest[0])
     elif cmd == "status" and not rest:

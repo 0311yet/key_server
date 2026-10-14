@@ -45,11 +45,38 @@ library (no `pip install`), so it runs anywhere Python 3.8+ is available.
 
 ```
 python scripts/keyserver.py get <name>          # print one key's plaintext to stdout
-python scripts/keyserver.py list                 # list key names (no values)
-python scripts/keyserver.py set <name> <value>   # add or update a key
+python scripts/keyserver.py list                 # "<name>\t<description>" per line (no values)
+python scripts/keyserver.py list --json          # same, as JSON with timestamps
+python scripts/keyserver.py set <name> - [--desc "..."]   # add/update a key, value from stdin
+python scripts/keyserver.py describe <name> "..."         # set only the description
 python scripts/keyserver.py delete <name>        # remove a key
 python scripts/keyserver.py status               # {ok, locked} health probe
 ```
+
+Always pass the value of `set` on **stdin** (`-`), never as an argument: an
+argument lands in shell history and the process list, and agent permission
+checks may (rightly) block a command line that carries a secret:
+
+```
+printf '%s' "$VALUE" | python scripts/keyserver.py set openai -
+```
+
+`set <name> <value>` still works for non-secret values.
+
+## Descriptions: pick the right key
+
+Each key can carry a short description of what it is for ("OpenAI main account,
+billing org X", "GitHub PAT with repo scope for opening PRs"). `list` prints it
+after a tab, so:
+
+- **Before asking the user which key to use, run `list` and read the
+  descriptions.** Choose by description, not by guessing from the name; if two
+  keys fit, ask.
+- **When you store a key, add `--desc`** saying what it is and what it's for, so
+  the next agent can find it. Without `--desc`, `set` keeps whatever description
+  the key already had.
+- Descriptions are stored **unencrypted** and shown to every authorized client —
+  never put secrets, passwords, or account recovery info in them.
 
 `get` prints **only** the raw key value on stdout (no quotes, no newline noise),
 so it composes cleanly:

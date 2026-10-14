@@ -510,3 +510,14 @@ tbody tr:last-child td { border-bottom: none; }
   .panel { overflow-x: auto; }
   .panel table { min-width: 520px; }
 }
+
+/* ---- 密钥简介 / 查看明文 ---- */
+.key-desc { max-width: 420px; white-space: pre-wrap; word-break: break-word; color: var(--fg-mute); }
+.key-desc .muted { opacity: 0.5; }
+td.actions { white-space: nowrap; }
+td.actions button + button { margin-left: 6px; }
+.reveal-row td { background: rgba(46, 230, 166, 0.06); }
+.reveal-row code.secret {
+    font-family: inherit; color: var(--green); word-break: break-all;
+    user-select: all; margin-right: 10px;
+}

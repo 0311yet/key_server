@@ -41,19 +41,28 @@ days of expiring.
 
 ```
 GET /api/keys
--> 200 {"ok": true, "keys": [{"name": "openai", "created_at": "..."}]}
+-> 200 {"ok": true, "keys": [{"name": "openai", "description": "OpenAI main account",
+                              "created_at": "...", "updated_at": "..."}]}
 
 GET /api/keys/<name>
--> 200 {"ok": true, "key": "<plaintext>"}
+-> 200 {"ok": true, "key": "<plaintext>", "description": "..."}
 -> 404 {"ok": false, "error": "密钥不存在"}
 
 POST /api/keys
-  form: name=<name>&value=<plaintext>
--> 200 {"ok": true}                       # upsert
+  form: name=<name>&value=<plaintext>[&description=<text>]
+-> 200 {"ok": true}                       # upsert; omitting description keeps the old one
+
+POST /api/keys/<name>/description
+  form: description=<text>               # "" clears it; max 500 chars
+-> 200 {"ok": true}
+-> 404 {"ok": false, "error": "密钥不存在"}
 
 DELETE /api/keys/<name>
 -> 200 {"ok": true}
+-> 404 {"ok": false, "error": "密钥不存在"}
 ```
+
+`description` is stored unencrypted and visible to every authorized client.
 
 Common error statuses on these endpoints:
 

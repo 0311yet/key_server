@@ -1,6 +1,5 @@
+# 生产依赖（Vercel 按此安装）。本地开发 / 测试另装 requirements-dev.txt
 fastapi==0.115.6
-uvicorn[standard]==0.34.0
-sqlmodel==0.0.22
 python-multipart==0.0.20
 jinja2==3.1.5
 itsdangerous==2.2.0

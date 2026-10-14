@@ -13,7 +13,7 @@ if [ ! -d ".venv" ]; then
 fi
 
 echo "[init] 安装依赖..."
-.venv/bin/pip install -q -r requirements.txt
+.venv/bin/pip install -q -r requirements-dev.txt
 
 # 2. 如无 .env 则从 .env.example 复制
 if [ ! -f ".env" ]; then

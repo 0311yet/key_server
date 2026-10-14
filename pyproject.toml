@@ -1,12 +1,10 @@
 [project]
 name = "key-server"
-version = "1.0.0"
+version = "1.1.0"
 description = "自托管的密钥管理服务"
 requires-python = ">=3.9"
 dependencies = [
     "fastapi>=0.115.0",
-    "uvicorn[standard]>=0.34.0",
-    "sqlmodel>=0.0.22",
     "python-multipart>=0.0.20",
     "jinja2>=3.1.5",
     "itsdangerous>=2.2.0",
@@ -15,5 +13,11 @@ dependencies = [
     "httpx>=0.28.1",
 ]
 
+[project.optional-dependencies]
+dev = ["uvicorn[standard]>=0.34.0", "pytest>=8.0"]
+
 [tool.vercel]
 include-files = ["app/**", "static/**"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
