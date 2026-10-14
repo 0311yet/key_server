@@ -250,10 +250,10 @@ def cmd_status() -> None:
         sys.exit(3)
 
 
-def _force_utf8_output() -> None:
-    """Windows 中文系统上，输出到管道时默认是 GBK，读取方按 UTF-8 解析就会看到乱码
-    （简介、报错信息都受影响）。统一用 UTF-8 输出。"""
-    for stream in (sys.stdout, sys.stderr):
+def _force_utf8_io() -> None:
+    """Windows 中文系统上，管道的 stdin/stdout 默认是 GBK：读取方按 UTF-8 解析会看到乱码
+    （简介、报错信息都受影响），`set -` 从管道读入的非 ASCII 值也会被读坏。统一用 UTF-8。"""
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
         try:
             stream.reconfigure(encoding="utf-8")
         except (AttributeError, ValueError):
@@ -261,7 +261,7 @@ def _force_utf8_output() -> None:
 
 
 def main(argv: "list[str]") -> None:
-    _force_utf8_output()
+    _force_utf8_io()
     if not argv:
         _die(1, __doc__)
     cmd, rest = argv[0], argv[1:]
